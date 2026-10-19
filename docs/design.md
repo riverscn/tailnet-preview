@@ -207,7 +207,15 @@ tailnet does not issue HTTPS certificates. The deploy fails so that the PR says 
 check waits until the sidecar runs: a sidecar that is (re)starting reports no certificate domains yet.
 
 A deploy that succeeds can still leave something the PR should mention: the engine writes
-`<code><TAB><detail>` to `TP_NOTICE_FILE` and the comment adds it to "ready". The only notice is `cert`.
+a line `<code><TAB><detail>` per notice to `TP_NOTICE_FILE` and the comment adds them to "ready". The
+notices are `hostname` and `cert`.
+
+`hostname`: the tailnet already has a device with the environment's name (`<project>-<env>`), usually a node
+of an earlier environment that never logged out, so Tailscale named this one with a suffix (`-1`). The
+environment works under that address, which the engine reads from the node on every deploy, but not
+under the one people expect; `doctor` warns too.
+
+`cert`:
 Tailscale requests a node's certificate on the first visit, where a failure only shows as a TLS error in
 the browser, so the deploy requests it once the health check passes, waiting at most a minute
 (`TP_CERT_TIMEOUT`). A new deploy supersedes the previous one: it first stops the previous retry loop and any

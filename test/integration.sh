@@ -247,6 +247,21 @@ for _ in $(seq 1 40); do grep -q issued <<<"$(retry_log)" && break; sleep 1; don
 grep -q issued <<<"$(retry_log)" || fatal "the background loop gets the certificate after the rate limit: $(retry_log)"
 ok "the background loop waits out the rate limit, then gets the certificate"
 
+# Another device has the environment's name: Tailscale adds a suffix; the deploy says so, doctor too.
+"$TP" compose pr-2 exec -T ts touch /var/lib/tailscale/name-taken
+rm -f "$TP_NOTICE_FILE"
+run deploy pr-2 --tag "$TAG"
+expect_rc 0 "deploy under a taken name"
+[[ $OUT == https://tp-itest-pr-2-1.fake-tailnet.ts.net ]] || fatal "deploy reports the actual address, got $OUT"
+grep -q $'^hostname\t.*already has a device named tp-itest-pr-2' "$TP_NOTICE_FILE" ||
+  fatal "notice hostname: $(cat "$TP_NOTICE_FILE")"
+grep -q 'WARNING: not named tp-itest-pr-2' <<<"$("$TP" doctor pr-2)" || fatal "doctor warns about the name"
+ok "a taken name is reported by the deploy and by doctor"
+"$TP" compose pr-2 exec -T ts rm /var/lib/tailscale/name-taken
+run deploy pr-2 --tag "$TAG"
+[[ $OUT == https://tp-itest-pr-2.fake-tailnet.ts.net ]] || fatal "the next deploy picks up the usual address, got $OUT"
+ok "the next deploy picks up the address once the name is free"
+
 limited=$(variant limited) && echo 'MAX_ENVS=2' >>"$limited/config.env"
 TP_CONFIG=$limited run deploy pr-3 --tag "$TAG"
 expect_rc 3 "limit of PR environments exits 3"

@@ -6,8 +6,10 @@
 # calls report a sidecar that restarted and is still logging in. `cert-slow` makes certificate requests hang.
 # An issued certificate is kept in certs/, like tailscaled does; `serve status` shows the active serve
 # configuration (TS_SERVE_CONFIG), or nothing while HTTPS is off.
-domain="${TS_HOSTNAME}.fake-tailnet.ts.net"
 state=/var/lib/tailscale
+# `name-taken`: the tailnet already has a device with this hostname, so the node gets a suffix.
+if [ -f $state/name-taken ]; then name="${TS_HOSTNAME}-1"; else name="${TS_HOSTNAME}"; fi
+domain="${name}.fake-tailnet.ts.net"
 case "$1 $2" in
   'status --json')
     backend=Running
