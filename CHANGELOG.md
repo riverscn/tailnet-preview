@@ -4,11 +4,15 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+## 1.0.0 - 2026-10-19
+
+First release.
+
 ### Added
 
 - Engine `bin/tailnet-preview`: baseline and per-PR environments, data copied from the baseline as Docker
-  volumes (any database), in-place upgrades, fresh environments when the default branch does not use tailnet-preview yet, destroy, reset,
-  stop/start, backups, pruning, `doctor` diagnostics, `host-check`.
+  volumes (any database), in-place upgrades, fresh environments when the default branch does not use
+  tailnet-preview yet, destroy, reset, stop/start, backups, pruning, `doctor` diagnostics, `host-check`.
 - Project configuration `.tailnet-preview/`: reuses the project's own compose files unchanged
   (`COMPOSE_FILES`), with published ports and fixed container names removed automatically and the
   repository snapshotted per environment; `config.env`, an override, comment text.
