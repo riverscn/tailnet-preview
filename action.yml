@@ -73,7 +73,8 @@ runs:
         ENV_NAME: ${{ steps.env.outputs.name }}
         BASE_REF: ${{ github.event.pull_request.base.ref }}
       run: |
-        set -uo pipefail
+        # Actions runs `bash -e`: failures are collected in $code instead of ending the step.
+        set +e -uo pipefail
         rm -f "$TP_FAILURE_FILE"
         code=0 mode='' fresh='' url=''
         echo "::group::build images"
@@ -178,7 +179,7 @@ runs:
         "$TP" $ARGS
 
     - name: Pull request comment
-      if: always() && github.event.pull_request.number && (inputs.command == 'destroy' || steps.deploy.outputs.code)
+      if: always() && github.event.pull_request.number && (inputs.command == 'destroy' || inputs.command == 'deploy')
       uses: actions/github-script@v7
       env:
         COMMENT_JS: ${{ github.action_path }}/lib/comment.cjs
@@ -207,7 +208,7 @@ runs:
           await upsert({ github, context, issueNumber: context.payload.pull_request.number, body: render(kind, data) })
 
     - name: Result
-      if: inputs.command == 'deploy'
+      if: always() && inputs.command == 'deploy'
       shell: bash
       env:
         CODE: ${{ steps.deploy.outputs.code }}

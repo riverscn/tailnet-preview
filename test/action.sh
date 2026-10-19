@@ -36,7 +36,7 @@ deploy_step() {
     cd "$WORK/project"
     TP=$TP TP_SOURCE=$WORK/project TP_CONFIG=$WORK/project/.tailnet-preview TP_FAILURE_FILE=$WORK/failure \
       CONFIG_REL=.tailnet-preview ENV_NAME=$1 BASE_REF=main RUNNER_TEMP=$WORK \
-      GITHUB_OUTPUT=$out GITHUB_STEP_SUMMARY=$WORK/summary bash "$STEP"
+      GITHUB_OUTPUT=$out GITHUB_STEP_SUMMARY=$WORK/summary bash --noprofile --norc -eo pipefail "$STEP"
   ) >"$WORK/log" 2>&1 || {
     tail -30 "$WORK/log"
     fatal "deploy step of $1 exited non-zero"
