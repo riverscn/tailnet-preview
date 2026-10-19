@@ -4,6 +4,8 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+## 0.2.0 - 2026-10-19
+
 ### Added
 
 - Deploy requests the node's HTTPS certificate once the health check passes. When Let's Encrypt does not

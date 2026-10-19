@@ -52,7 +52,7 @@ and copies the volumes you list in `DATA_VOLUMES`. Details: [docs/design.md](doc
 
    ```yaml
    - uses: actions/checkout@v4
-   - uses: riverscn/tailnet-preview@v0.1.0
+   - uses: riverscn/tailnet-preview@v0.2.0
      with:
        command: deploy
    ```
