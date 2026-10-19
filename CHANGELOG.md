@@ -4,6 +4,11 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+### Fixed
+
+- A deploy job cancelled by a newer push no longer replaces the PR comment with "deploy failed"; the
+  diagnostics, comment and result steps run after failures only, not after cancellation.
+
 ## 0.2.2 - 2026-10-19
 
 ### Fixed

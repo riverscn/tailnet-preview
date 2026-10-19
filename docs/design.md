@@ -239,6 +239,9 @@ connections and a parallel pull aborts every image when one connection drops.
 `deploy pr-<n>` and `reset pr-<n>`: they would put the default branch's code into a PR environment. To
 rebuild a PR environment, run `destroy pr-<n>` and re-run the PR's deploy job.
 
+The diagnostics, the PR comment and the job result run after a failed deploy, but not after a cancelled
+one: a newer push that cancels the job updates the comment itself.
+
 The action locates its own scripts through `github.action_path`, so a workflow pinned to `@v0.2.2` runs
 exactly that version of the engine.
 

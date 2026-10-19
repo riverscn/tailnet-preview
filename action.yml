@@ -122,7 +122,7 @@ runs:
         [[ $code != 0 ]] || echo "### Preview ready: $url" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Diagnostics
-      if: always() && inputs.command == 'deploy' && steps.deploy.outputs.code != '3'
+      if: ${{ !cancelled() && inputs.command == 'deploy' && steps.deploy.outputs.code != '3' }}
       shell: bash
       env:
         TP: ${{ github.action_path }}/bin/tailnet-preview
@@ -185,7 +185,7 @@ runs:
         "$TP" $ARGS
 
     - name: Pull request comment
-      if: always() && github.event.pull_request.number && (inputs.command == 'destroy' || inputs.command == 'deploy')
+      if: ${{ !cancelled() && github.event.pull_request.number && (inputs.command == 'destroy' || inputs.command == 'deploy') }}
       uses: actions/github-script@v7
       env:
         COMMENT_JS: ${{ github.action_path }}/lib/comment.cjs
@@ -216,7 +216,7 @@ runs:
           await upsert({ github, context, issueNumber: context.payload.pull_request.number, body: render(kind, data) })
 
     - name: Result
-      if: always() && inputs.command == 'deploy'
+      if: ${{ !cancelled() && inputs.command == 'deploy' }}
       shell: bash
       env:
         CODE: ${{ steps.deploy.outputs.code }}
