@@ -69,13 +69,14 @@ runs:
         TP_SOURCE: ${{ github.workspace }}
         TP_CONFIG: ${{ github.workspace }}/${{ inputs.config }}
         TP_FAILURE_FILE: ${{ runner.temp }}/tailnet-preview-failure
+        TP_NOTICE_FILE: ${{ runner.temp }}/tailnet-preview-notice
         CONFIG_REL: ${{ inputs.config }}
         ENV_NAME: ${{ steps.env.outputs.name }}
         BASE_REF: ${{ github.event.pull_request.base.ref }}
       run: |
         # Actions runs `bash -e`: failures are collected in $code instead of ending the step.
         set +e -uo pipefail
-        rm -f "$TP_FAILURE_FILE"
+        rm -f "$TP_FAILURE_FILE" "$TP_NOTICE_FILE"
         code=0 mode='' fresh='' url=''
         echo "::group::build images"
         "$TP" build || code=$?
@@ -190,6 +191,7 @@ runs:
         COMMENT_JS: ${{ github.action_path }}/lib/comment.cjs
         CONFIG_DIR: ${{ github.workspace }}/${{ inputs.config }}
         FAILURE_FILE: ${{ runner.temp }}/tailnet-preview-failure
+        NOTICE_FILE: ${{ runner.temp }}/tailnet-preview-notice
         COMMAND: ${{ inputs.command }}
         CODE: ${{ steps.deploy.outputs.code }}
         URL: ${{ steps.deploy.outputs.url }}
@@ -207,8 +209,9 @@ runs:
           const config = read(`${env.CONFIG_DIR}/config.env`)
           const ports = (config.match(/^PORTS=(.*)$/m)?.[1] ?? '').trim().replace(/^(["'])(.*)\1$/, '$2')
           const [reason, detail] = read(env.FAILURE_FILE).trim().split('\t')
+          const [notice, noticeDetail] = read(env.NOTICE_FILE).trim().split('\t')
           const data = { language: env.LANGUAGE, sha: env.SHA, url: env.URL, mode: env.MODE, ports,
-            extra: read(`${env.CONFIG_DIR}/comment.md`), runUrl: env.RUN_URL, reason, detail }
+            extra: read(`${env.CONFIG_DIR}/comment.md`), runUrl: env.RUN_URL, reason, detail, notice, noticeDetail }
           const kind = env.COMMAND === 'destroy' ? 'destroyed' : env.CODE === '0' ? 'ready' : env.CODE === '3' ? 'limit' : 'failed'
           await upsert({ github, context, issueNumber: context.payload.pull_request.number, body: render(kind, data) })
 

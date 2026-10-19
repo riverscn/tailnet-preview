@@ -7,6 +7,7 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d)
 export TP_HOME=$WORK/home TP_PROJECT=tp-itest TP_SOURCE=$REPO TP_CONFIG=$REPO/example/.tailnet-preview
 export TS_OAUTH_SECRET=tskey-client-fake TP_TS_IMAGE=tp-fake-tailscale:test TP_FAILURE_FILE=$WORK/failure
+export TP_NOTICE_FILE=$WORK/notice TP_CERT_RETRY_DELAYS='2 2 2'
 export TP_RETRY_DELAY=1 TP_HOST_CONFIG=$WORK/no-host-config
 TP=$REPO/bin/tailnet-preview
 TAG=itest$(date +%s)
@@ -169,20 +170,21 @@ grep -q 'cert --cert-file' <<<"$("$TP" compose pr-2 exec -T ts cat /var/lib/tail
   fatal "deploy requests the certificate"
 ok "deploy requests the certificate"
 "$TP" compose pr-2 exec -T ts sh -c ': >/var/lib/tailscale/cert-requests; touch /var/lib/tailscale/cert-invalid'
+rm -f "$TP_NOTICE_FILE"
 run deploy pr-2 --tag "$TAG"
-expect_rc 1 "deploy without a certificate fails"
-expect_reason cert "reason cert"
-grep -q 'Incorrect TXT record' "$TP_FAILURE_FILE" || fatal "reason cert carries Let's Encrypt's error"
-[[ $(cert_requests) == 1 ]] || fatal "a failed order is not retried, got $(cert_requests) requests"
-ok "a failed order is not retried"
-"$TP" compose pr-2 exec -T ts sh -c ': >/var/lib/tailscale/cert-requests; mv /var/lib/tailscale/cert-invalid /var/lib/tailscale/cert-ratelimited'
-run deploy pr-2 --tag "$TAG"
-expect_reason cert "reason cert when rate limited"
-grep -q rateLimited "$TP_FAILURE_FILE" || fatal "reason cert carries the rate limit"
-ok "reason cert carries the rate limit"
-run has pr-2
-expect_rc 0 "environment kept without a certificate"
-"$TP" compose pr-2 exec -T ts rm /var/lib/tailscale/cert-ratelimited
+expect_rc 0 "deploy without a certificate succeeds"
+[[ $(cut -f1 "$TP_NOTICE_FILE" 2>/dev/null) == cert ]] || fatal "notice cert, got '$(cat "$TP_NOTICE_FILE" 2>/dev/null)'"
+grep -q 'Incorrect TXT record' "$TP_NOTICE_FILE" || fatal "notice cert carries Let's Encrypt's error"
+[[ $(cert_requests) == 1 ]] || fatal "deploy requests the certificate once, got $(cert_requests) requests"
+ok "notice cert with Let's Encrypt's error"
+retry_log() { "$TP" compose pr-2 exec -T ts cat /var/lib/tailscale/tp-cert-retry.log 2>/dev/null; }
+sleep 3
+grep -q 'failed: .*Incorrect TXT record' <<<"$(retry_log)" || fatal "the sidecar retries in the background: $(retry_log)"
+"$TP" compose pr-2 exec -T ts rm /var/lib/tailscale/cert-invalid
+for _ in 1 2 3 4 5; do grep -q issued <<<"$(retry_log)" && break; sleep 1; done
+grep -q issued <<<"$(retry_log)" || fatal "a background retry gets the certificate: $(retry_log)"
+grep -q issued <<<"$("$TP" doctor pr-2)" || fatal "doctor shows the background retries"
+ok "the sidecar retries in the background until the certificate is issued; doctor shows it"
 
 limited=$(variant limited) && echo 'MAX_ENVS=2' >>"$limited/config.env"
 TP_CONFIG=$limited run deploy pr-3 --tag "$TAG"

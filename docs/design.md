@@ -200,18 +200,23 @@ When the engine recognizes the cause of a failure it writes `<code><TAB><detail>
 (the action sets it to `$RUNNER_TEMP/tailnet-preview-failure`). The PR comment turns the code into a cause
 and the steps to fix it (`lib/comment.cjs`, `REASONS`), matching the table in
 [troubleshooting.md](troubleshooting.md). Codes: `config`, `registry`, `build`, `ts_secret`, `ts_login`,
-`https`, `cert`, `fork`, `migrate`, `seed`, `health`.
+`https`, `fork`, `migrate`, `seed`, `health`.
 
-`https` and `cert` are special: the environment was created and is kept, but browsers cannot connect.
-`https`: the tailnet does not issue HTTPS certificates. `cert`: it does, but the node's certificate was not
-issued. Tailscale would request it on the first visit and a failure would only show as a TLS error in the
-browser, so the deploy requests it once the health check passes. Let's Encrypt validates the DNS record
-Tailscale publishes in the same second it is set, and rejects the order when the record has not reached
-public DNS yet (`NXDOMAIN`, or `Incorrect TXT record` when only older values are visible). The engine does
-not retry: every attempt publishes a new record that is validated at once again, and Let's Encrypt allows
-five failed validations per name and hour, which browsers opening the address spend too. The failure
-carries Let's Encrypt's reason, which the sidecar fetches from the order's public authorization. The deploy
-fails so that the PR says so instead of "ready"; per-node certificates are the weak point of this design.
+`https` is special: the environment was created and is kept, but browsers cannot connect because the
+tailnet does not issue HTTPS certificates. The deploy fails so that the PR says so instead of "ready". The
+check waits until the sidecar runs: a sidecar that is (re)starting reports no certificate domains yet.
+
+A deploy that succeeds can still leave something the PR should mention: the engine writes
+`<code><TAB><detail>` to `TP_NOTICE_FILE` and the comment adds it to "ready". The only notice is `cert`.
+Tailscale requests a node's certificate on the first visit, where a failure only shows as a TLS error in
+the browser, so the deploy requests it once the health check passes. Let's Encrypt validates the DNS
+record Tailscale publishes in the same second it is set, and rejects the order when the record has not
+reached public DNS yet (`NXDOMAIN`, or `Incorrect TXT record` when only older values are visible). That is
+a timing problem between the two services, not the PR's, so the deploy succeeds with the notice `cert`,
+which carries Let's Encrypt's reason (the sidecar fetches it from the order's public authorization). A
+loop inside the sidecar, which outlives the deploy job, requests the certificate again after 5, 25 and 70
+minutes, within Let's Encrypt's five failed validations per name and hour; `doctor` shows its progress.
+Per-node certificates remain the weak point of this design.
 
 Pulls from the image registry are retried, one image at a time, because flaky links to Docker Hub reset
 connections and a parallel pull aborts every image when one connection drops.
