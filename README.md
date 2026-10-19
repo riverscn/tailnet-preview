@@ -5,7 +5,7 @@
 [简体中文](README.zh-CN.md)
 
 Open a pull request and a full copy of your application starts on a machine you own: its own containers,
-its own database **copied from a long-lived baseline**, and an HTTPS address like
+its own data **copied from a long-lived baseline**, and an HTTPS address like
 `https://myapp-pr-42.your-tailnet.ts.net` that only devices in your [Tailscale](https://tailscale.com)
 network can open. Push to the PR and it upgrades in place; close the PR and it is gone. A comment on the PR
 says where it is, or exactly what went wrong and how to fix it.
@@ -25,27 +25,27 @@ pull request ──▶ GitHub Actions (self-hosted runner on your machine)
   tunnel, or login page to protect.
 - **Cheap.** Any Linux box with Docker: a home server, a spare VM. One machine serves many projects; the
   machine needs no per-project setup.
-- **Plain tools.** Bash, Docker Compose and PostgreSQL. No cluster, no control plane, nothing to learn
-  beyond a `compose.yaml`.
+- **Plain tools, any stack.** Bash and Docker Compose. Your database is a service in your own
+  `compose.yaml`, whatever it is; data is copied as Docker volumes. No cluster, no control plane.
 
 ## How it works
 
-| Environment          | Database                                                                            | Lifetime            |
-| -------------------- | ----------------------------------------------------------------------------------- | ------------------- |
-| `main`, the baseline | Created once (migrations + seed), then upgraded by every push to the default branch | Long-lived          |
-| `pr-<number>`        | Copied from the baseline (`CREATE DATABASE … TEMPLATE`), then the PR's migrations   | Until the PR closes |
+| Environment          | Data                                                                                 | Lifetime            |
+| -------------------- | ------------------------------------------------------------------------------------ | ------------------- |
+| `main`, the baseline | Created once (migrate + seed), then upgraded by every push to the default branch     | Long-lived          |
+| `pr-<number>`        | A copy of the baseline's data volumes (database, uploads…), then the PR's migrations | Until the PR closes |
 
-Each environment is a Docker Compose project: your services plus a Tailscale sidecar that serves HTTPS
-and proxies to them. Every project gets its own PostgreSQL container on the host, with one database per
-environment. Details: [docs/design.md](docs/design.md).
+Each environment is a Docker Compose project: your services, database included, plus a Tailscale
+sidecar that serves HTTPS and proxies to them. To fork, the engine pauses the baseline for a few seconds
+and copies the volumes you list in `DATA_VOLUMES`. Details: [docs/design.md](docs/design.md).
 
 ## Quick start
 
 1. **Prepare the tailnet and the host once:** enable HTTPS certificates, add a `tag:preview` policy,
    create an OAuth client, install Docker and a self-hosted runner labelled `preview`.
    → [docs/host-setup.md](docs/host-setup.md)
-2. **Add `.tailnet-preview/` to your project:** which images to build, your services in a
-   `compose.yaml`, optional migrate and seed tasks. → [docs/project-setup.md](docs/project-setup.md)
+2. **Add `.tailnet-preview/` to your project:** which images to build, your services (database included)
+   in a `compose.yaml`, which volumes hold data, optional migrate and seed tasks. → [docs/project-setup.md](docs/project-setup.md)
 3. **Add a workflow** that calls the action:
 
    ```yaml

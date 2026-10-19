@@ -83,13 +83,12 @@ user whose `~/previews/` and `~/.config/tailnet-preview/` are used.
 
 ## What lives where
 
-| Path or name                    | Content                                                                             |
-| ------------------------------- | ----------------------------------------------------------------------------------- |
-| `~/.config/tailnet-preview/env` | `TS_OAUTH_SECRET` (and optionally `TS_TAGS`) for all projects                       |
-| `~/previews/<project>/`         | Generated secrets, environment directories, baseline backups, lock                  |
-| `<project>-preview-postgres`    | The project's PostgreSQL container (volume `<project>-preview-infra_postgres-data`) |
-| `<project>-<env>-*`             | Containers of one environment                                                       |
+| Path or name                    | Content                                                            |
+| ------------------------------- | ------------------------------------------------------------------ |
+| `~/.config/tailnet-preview/env` | `TS_OAUTH_SECRET` (and optionally `TS_TAGS`) for all projects      |
+| `~/previews/<project>/`         | Generated secrets, environment directories, baseline backups, lock |
+| `<project>-<env>-*`             | Containers of one environment                                      |
+| `<project>-<env>_*`             | Volumes of one environment                                         |
 
 To remove a project completely: destroy its environments (`tailnet-preview destroy pr-N`,
-`tailnet-preview destroy main --force`), then `docker rm -f <project>-preview-postgres`, remove its volume,
-the network `<project>-preview` and `~/previews/<project>/`.
+`tailnet-preview destroy main --force`), then remove `~/previews/<project>/`.

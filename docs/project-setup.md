@@ -12,7 +12,7 @@ Preview environments run your production images with production settings, plus w
 to share: mock SMS or payment providers, a demo data seed, a local mail catcher. Typical needs:
 
 - the public URL comes from the environment (`TP_URL`), not from a hard-coded domain;
-- database connection settings come from the environment;
+- database connection settings come from the environment (the database is a service of the environment);
 - a seed command that loads demo data and refuses to run in real production unless explicitly allowed.
 
 Never point a preview environment at real user data.
@@ -21,11 +21,10 @@ Never point a preview environment at real user data.
 
 ```
 .tailnet-preview/
-  config.env       images, HTTP upstream, health check
-  compose.yaml     your services
-  db-init.sql      optional: roles
-  db-created.sql   optional: grants per database
+  config.env       images, HTTP upstream, health check, data volumes
+  compose.yaml     your services, database included
   comment.md       optional: text for the PR comment (demo accounts…)
+  db/init.sql      optional: anything compose.yaml mounts by relative path
 ```
 
 `config.env`:
@@ -38,30 +37,50 @@ HTTP=web:80
 # extra HTTPS ports, e.g. a mail catcher's UI
 PORTS=8025=mailpit:8025
 HEALTH_PATH=/api/health
-DB_OWNER=app_owner
-# generated once per project on the host, available to compose by name
-SECRETS=SESSION_SECRET
+# volumes that hold data: a new PR environment starts with a copy of the baseline's
+DATA_VOLUMES=db-data
+# generated once per project on the host, the same in every environment, available to compose by name
+SECRETS=DB_PASSWORD SESSION_SECRET
 ```
 
-`compose.yaml`, using the variables the engine provides (`TP_URL`, `TP_DB_*`, `TP_IMAGE_<NAME>`, your
-`SECRETS`):
+`compose.yaml` describes the environment the way your local `docker compose` setup does, using the
+variables the engine provides (`TP_URL`, `TP_ENV`, `TP_IMAGE_<NAME>`, your `SECRETS`):
 
 ```yaml
 x-env: &env
   NODE_ENV: production
   APP_URL: ${TP_URL}
-  DATABASE_URL: postgres://app_user:${TP_DB_PASSWORD}@${TP_DB_HOST}:${TP_DB_PORT}/${TP_DB_NAME}
+  DATABASE_URL: postgres://app:${DB_PASSWORD}@db:5432/app
   SESSION_SECRET: ${SESSION_SECRET}
   SMTP_URL: smtp://mailpit:1025
 
+x-needs-db: &needs-db
+  db:
+    condition: service_healthy
+
 services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: app
+    volumes:
+      - db-data:/var/lib/postgresql/data
+      # runs once, when the volume is empty: roles, extensions
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U app -d app']
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
   web:
     image: ${TP_IMAGE_WEB}
     restart: unless-stopped
   api:
     image: ${TP_IMAGE_API}
     environment: *env
-    networks: [default, preview] # `preview` reaches the database
+    depends_on: *needs-db
     restart: unless-stopped
   mailpit:
     image: axllent/mailpit:v1.31
@@ -71,38 +90,30 @@ services:
   migrate:
     image: ${TP_IMAGE_API}
     profiles: [tasks]
-    environment:
-      <<: *env
-      DATABASE_URL: postgres://app_owner:${TP_DB_PASSWORD}@${TP_DB_HOST}:${TP_DB_PORT}/${TP_DB_NAME}
-    networks: [default, preview]
+    environment: *env
+    depends_on: *needs-db
     command: ['node', 'dist/migrate.js']
   seed:
     image: ${TP_IMAGE_API}
     profiles: [tasks]
     environment: *env
-    networks: [default, preview]
+    depends_on: *needs-db
     command: ['node', 'dist/seed.js']
+
+volumes:
+  db-data:
 ```
 
-Do not publish ports (`ports:`): the sidecar reaches services over the compose network, and nothing else
-should. Do not define a service named `ts`.
+Rules ([design.md 5.2](design.md#52-composeyaml)):
 
-`db-init.sql` runs as superuser before every deploy and must be idempotent; `:'password'` is
-`TP_DB_PASSWORD`:
-
-```sql
-SELECT format('CREATE ROLE %I LOGIN', r) FROM unnest(ARRAY['app_owner', 'app_user']) AS r
- WHERE NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) \gexec
-ALTER ROLE app_owner LOGIN PASSWORD :'password';
-ALTER ROLE app_user LOGIN PASSWORD :'password';
-```
-
-`db-created.sql` runs after an environment's database is created or copied (database-level grants are not
-copied by `CREATE DATABASE … TEMPLATE`); `:'db'` is its name:
-
-```sql
-SELECT format('GRANT CONNECT ON DATABASE %I TO app_user', :'db') \gexec
-```
+- Do not publish ports (`ports:`): the sidecar reaches services over the compose network, and nothing else
+  should. Do not define a service named `ts`.
+- Do not give data volumes a fixed `name:`; every environment needs its own.
+- Passwords shared by the database and the services go in `SECRETS`. A PR environment's database is a copy
+  of the baseline's, so it keeps the baseline's passwords; a secret generated per environment would not
+  match.
+- Anything else can be a volume too: list uploaded files or a search index in `DATA_VOLUMES` to copy them
+  with the database.
 
 ## 3. Enable it for the repository
 
@@ -200,5 +211,5 @@ Action inputs: `command` (`deploy`, `destroy`, `nightly`, `run`), `config` (defa
 ## 5. The first pull request
 
 The PR that adds `.tailnet-preview/` cannot copy a baseline: the default branch does not use
-tailnet-preview yet. Its environment is created from an empty database (migrate, then seed), and the PR
-comment says so. Merging it creates the baseline from the default branch; every later PR copies it.
+tailnet-preview yet. Its environment is created with empty volumes (migrate, then seed), and the PR comment
+says so. Merging it creates the baseline from the default branch; every later PR copies it.
