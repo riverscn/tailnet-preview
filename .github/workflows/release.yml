@@ -1,0 +1,60 @@
+name: Release
+
+# Run on main after the pull request that dates the version in CHANGELOG.md is merged (CONTRIBUTING.md).
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, without the "v" (e.g. 0.1.0)
+        required: true
+
+permissions:
+  contents: write
+
+concurrency: release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Check the version and extract its notes
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          fail() {
+            echo "::error::$*"
+            exit 1
+          }
+          [[ $GITHUB_REF == refs/heads/main ]] || fail "run the release on main, not $GITHUB_REF"
+          [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "version must be X.Y.Z, got '$VERSION'"
+          if git rev-parse -q --verify "refs/tags/v$VERSION" >/dev/null; then fail "v$VERSION already exists"; fi
+          # The section "## X.Y.Z - <date>" up to the next "## " heading.
+          awk -v v="$VERSION" '
+            index($0, "## " v " - ") == 1 { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md >"$RUNNER_TEMP/notes.md"
+          grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md" || fail "CHANGELOG.md has no section '## $VERSION - <date>'"
+          cat "$RUNNER_TEMP/notes.md"
+      - name: Tag and publish
+        env:
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "v$VERSION" -m "tailnet-preview $VERSION"
+          git push origin "v$VERSION"
+          major=${VERSION%%.*}
+          prerelease=()
+          if [[ $major == 0 ]]; then
+            # 0.x: no moving tag; projects pin the full version (docs/design.md section 9).
+            prerelease=(--prerelease)
+          else
+            git tag -f "v$major"
+            git push -f origin "v$major"
+          fi
+          gh release create "v$VERSION" --verify-tag --title "v$VERSION" --notes-file "$RUNNER_TEMP/notes.md" "${prerelease[@]}"

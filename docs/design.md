@@ -210,7 +210,7 @@ connections and a parallel pull aborts every image when one connection drops.
 
 ## 8. The action
 
-`uses: riverscn/tailnet-preview@v1` with `command`:
+`uses: riverscn/tailnet-preview@v0.1.0` with `command`:
 
 | `command` | Typical trigger                                                              | Does                                                                                                                          |
 | --------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -219,11 +219,17 @@ connections and a parallel pull aborts every image when one connection drops.
 | `nightly` | `schedule`                                                                   | Backs up the baseline, prunes environments of closed PRs and unused images                                                    |
 | `run`     | `workflow_dispatch`                                                          | Runs an engine command given in `args`, e.g. `reset main`                                                                     |
 
-The action locates its own scripts through `github.action_path`, so a workflow pinned to `@v1.2.3` runs
+The action locates its own scripts through `github.action_path`, so a workflow pinned to `@v0.1.0` runs
 exactly that version of the engine.
 
 ## 9. Versioning
 
-Semantic versioning. Releases are tagged `vX.Y.Z`; the moving tag `vX` points at the latest release of a
-major version. Breaking changes to the project configuration, variables, commands or action inputs require a
-new major version.
+Semantic versioning. The interface is the project configuration, the variables, the commands and the action
+inputs. Releases are tagged `vX.Y.Z` by the Release workflow (`.github/workflows/release.yml`), with the
+notes of that version in `CHANGELOG.md`.
+
+- **0.x** (now): the interface is still settling as the first projects adopt it. A minor version may break
+  it, so projects pin the full version (`@v0.1.0`). There is no moving `v0` tag, and releases are marked as
+  pre-releases.
+- **From 1.0.0**: breaking changes require a new major version, and the moving tag `vX` points at the latest
+  release of major version X, so projects can use `@v1`.

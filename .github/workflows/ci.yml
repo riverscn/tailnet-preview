@@ -18,6 +18,14 @@ jobs:
           node-version: 22
       - name: shellcheck
         run: shellcheck bin/tailnet-preview test/*.sh test/fake-tailscale/tailscale example/app/handler.sh
+      # With pipefail, `cmd | grep -q` and `cmd | head` fail at random: the reader exits early and cmd gets SIGPIPE.
+      - name: no early-exit readers in pipelines
+        run: |
+          if grep -nE '[^|]\|\s*(grep\s+-[a-zA-Z]*q|head)\b' bin/tailnet-preview test/*.sh action.yml; then
+            # shellcheck disable=SC2016 # the message shows code, not an expansion
+            echo '::error::capture the output first: grep -q PATTERN <<<"$(cmd)"'
+            exit 1
+          fi
       - name: actionlint
         run: |
           bash <(curl -fsSL https://raw.githubusercontent.com/rhysd/actionlint/v1.7.7/scripts/download-actionlint.bash) 1.7.7

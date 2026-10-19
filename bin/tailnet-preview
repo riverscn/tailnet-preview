@@ -110,7 +110,11 @@ load_config() {
 
 image_var() { printf 'TP_IMAGE_%s' "$(tr '[:lower:]-' '[:upper:]_' <<<"$1")"; }
 
-random_secret() { head -c 32 /dev/urandom | base64 | tr -d '/+=\n' | head -c 40; }
+random_secret() {
+  local s
+  s=$(head -c 32 /dev/urandom | base64 | tr -d '/+=\n')
+  printf '%s' "${s:0:40}"
+}
 
 host_setting() {
   # shellcheck disable=SC1090
@@ -232,7 +236,12 @@ pr_env_count() { find "$ROOT/envs" -mindepth 1 -maxdepth 1 -type d -name 'pr-*' 
 
 free_mb() { awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo; }
 
-has_task() { compose_env "$1" --profile tasks config --services 2>/dev/null | grep -qx "$2"; }
+# Capture, then match: with pipefail, piping into a reader that exits early (grep -q) fails when the writer gets SIGPIPE.
+has_task() {
+  local services
+  services=$(compose_env "$1" --profile tasks config --services 2>/dev/null) || return 1
+  grep -qx "$2" <<<"$services"
+}
 
 # Services that stay running (default profile), except the sidecar.
 app_services() { compose_env "$1" config --services | grep -vx ts || true; }
@@ -396,7 +405,9 @@ run_task() {
 
 # The tailnet issues HTTPS certificates only if they are enabled; then CertDomains lists the node's name.
 https_enabled() {
-  compose_env "$1" exec -T ts tailscale status --json 2>/dev/null | tr -d ' \t\n' | grep -q '"CertDomains":\["'
+  local status
+  status=$(compose_env "$1" exec -T ts tailscale status --json 2>/dev/null) || return 1
+  [[ $(tr -d ' \t\n' <<<"$status") == *'"CertDomains":["'* ]]
 }
 
 # Request the health path through the same upstream the sidecar proxies to; new backends need a moment.
@@ -738,7 +749,7 @@ cmd_validate() {
     entry=$(compose_env pr-0 config 2>/dev/null | awk -v v="$vol" '
       /^volumes:/ { top = 1; next } /^[^ ]/ { top = 0 }
       top && $0 ~ "^  " v ":" { inside = 1; next } top && /^  [^ ]/ { inside = 0 }
-      inside && /^    external: true/ { print "external"; exit } inside && /^    name:/ { name = $2 } END { print name }' | head -1)
+      inside && /^    external: true/ { print "external"; exit } inside && /^    name:/ { name = $2 } END { print name }' | sed -n 1p)
     case $entry in
       '' | "$PROJECT-pr-0_$vol") ;;
       external) warn "volume $vol is external: every environment shares it" ;;
@@ -781,7 +792,7 @@ cmd_init() {
     if [[ -f $SOURCE/$file ]]; then compose=$file && break; fi
   done
   dockerfiles=$(cd "$SOURCE" && find . -name node_modules -prune -o -name .git -prune -o \
-    -type f \( -name Dockerfile -o -name '*.Dockerfile' \) -print 2>/dev/null | sed 's|^\./||' | sort | head -10)
+    -type f \( -name Dockerfile -o -name '*.Dockerfile' \) -print 2>/dev/null | sed 's|^\./||' | sort | sed -n 1,10p)
   for file in $dockerfiles; do
     images+="$(basename "$(dirname "$file")" | sed 's/^\.$/app/')=$file "
   done
