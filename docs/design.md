@@ -44,7 +44,7 @@ GitHub ──(workflow job, label: preview)──▶ self-hosted runner on the p
 | ----------------------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------- |
 | Engine `bin/tailnet-preview`              | this repository          | Creates, forks, upgrades, destroys, backs up and diagnoses environments on the host                            |
 | Composite action `action.yml`             | this repository          | What workflows call: builds images, decides fork or fresh, deploys, prints diagnostics, updates the PR comment |
-| Project configuration `.tailnet-preview/` | the project's repository | The project's services, images, which volumes hold data, comment text                                          |
+| Project configuration `.tailnet-preview/` | the project's repository | Which compose files and images make an environment, its entry point, which volumes hold data, comment text     |
 | Preview host                              | your machine             | Docker, a self-hosted runner labelled `preview`, one machine-wide Tailscale OAuth secret                       |
 
 ## 3. Environments
@@ -95,47 +95,55 @@ GitHub's `concurrency` groups are not used because they cancel queued runs inste
 
 ## 5. Project configuration
 
-A project adopts tailnet-preview by adding a directory, `.tailnet-preview/` by default:
+A project adopts tailnet-preview by adding a directory, `.tailnet-preview/` by default. How to write it,
+step by step: [configuring.md](configuring.md).
 
 ```
 .tailnet-preview/
-  config.env      required   images, HTTP upstream, health check, data volumes, limits
-  compose.yaml    required   the project's services, database included
+  config.env      required   images, compose files, HTTP upstream, health check, data, secrets, limits
+  compose.yaml    usual      what previews need: the whole environment, or an override of the project's file
   comment.md      optional   appended to the "ready" PR comment (demo accounts, hints)
-  …               optional   anything compose.yaml refers to by relative path (init scripts, config files)
 ```
 
-The whole directory is copied into the environment's state directory on every deploy and is the compose
-project directory, so relative paths in `compose.yaml` resolve inside it, and an environment keeps working
-(restart, stop/start) after the checkout it came from is gone.
+The project's own compose files can be reused **unchanged**: `COMPOSE_FILES` lists the files merged for an
+environment, for example `../compose.yaml compose.yaml` (the project's file, then a small override). The
+engine adds what every environment needs:
+
+- the Tailscale sidecar (`lib/compose.overlay.yaml`), first;
+- an isolation override, last, that removes every service's published `ports` and fixed `container_name`,
+  which would collide between environments running side by side. Compose already gives every
+  environment its own container, network and volume names (`<project>-<env>-…`).
+
+**Snapshot.** Every deploy copies the repository's working tree (tracked files and untracked files git does
+not ignore) into the environment's state directory, with the configuration directory on top. Compose runs
+from that copy, so relative paths (bind-mounted init scripts, config files) work and an environment can be
+restarted after the checkout is gone. Relative paths in all compose files resolve against the directory of
+the first `COMPOSE_FILES` entry (standard Compose behaviour for several `-f` files).
 
 ### 5.1 `config.env`
 
 Plain `KEY=value` lines; `#` starts a comment. The file is parsed, not executed.
 
-| Key            | Default      | Meaning                                                                                                                                                               |
-| -------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `IMAGES`       | – (required) | Space-separated `name=path/to/Dockerfile`. Build context is the repository root. Image `name` is available to compose as `${TP_IMAGE_<NAME>}` (upper case, `-` → `_`) |
-| `HTTP`         | – (required) | `service:port` that HTTPS port 443 proxies to, e.g. `web:80`                                                                                                          |
-| `PORTS`        | empty        | Extra HTTPS ports, space-separated `port=service:port`, e.g. `8025=mailpit:8025`                                                                                      |
-| `HEALTH_PATH`  | `/`          | Path requested through `HTTP` until it answers 2xx/3xx; deploys fail if it does not within two minutes                                                                |
-| `DATA_VOLUMES` | empty        | Space-separated names of volumes in `compose.yaml` that hold data: copied from the baseline into new PR environments, backed up nightly. Empty: every PR starts fresh |
-| `SECRETS`      | empty        | Space-separated variable names; each gets a random value generated once per project and kept on the host                                                              |
-| `MAX_ENVS`     | `8`          | Maximum number of PR environments                                                                                                                                     |
-| `MIN_FREE_MB`  | `1536`       | Minimum available host memory to create a PR environment                                                                                                              |
-| `KEEP_BACKUPS` | `7`          | Number of daily baseline backups to keep                                                                                                                              |
+| Key             | Default        | Meaning                                                                                                                                                                                               |
+| --------------- | -------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IMAGES`        | – (required)   | Space-separated `name=path/to/Dockerfile`. Build context is the repository root. Image `name` is available to compose as `${TP_IMAGE_<NAME>}` (upper case, `-` → `_`)                                 |
+| `HTTP`          | – (required)   | `service:port` that HTTPS port 443 proxies to, e.g. `web:80`: the container port, not a published one                                                                                                 |
+| `COMPOSE_FILES` | `compose.yaml` | Space-separated compose files merged in order, relative to the configuration directory; they must lie inside the repository                                                                           |
+| `PORTS`         | empty          | Extra HTTPS ports, space-separated `port=service:port`, e.g. `8025=mailpit:8025`                                                                                                                      |
+| `HEALTH_PATH`   | `/`            | Path requested through `HTTP` until it answers 2xx/3xx; deploys fail if it does not within two minutes                                                                                                |
+| `DATA_VOLUMES`  | `auto`         | Volumes copied from the baseline into new PR environments and backed up nightly: `auto` (every named volume), `none` (every PR starts with empty data and is seeded), or space-separated volume names |
+| `SECRETS`       | empty          | Space-separated variable names; each gets a random value generated once per project, kept on the host and identical in every environment                                                              |
+| `MAX_ENVS`      | `8`            | Maximum number of PR environments                                                                                                                                                                     |
+| `MIN_FREE_MB`   | `1536`         | Minimum available host memory to create a PR environment                                                                                                                                              |
+| `KEEP_BACKUPS`  | `7`            | Number of daily baseline backups to keep                                                                                                                                                              |
 
-### 5.2 `compose.yaml`
-
-The project's services, merged with the engine's overlay (`lib/compose.overlay.yaml`), which adds the
-service `ts`: the Tailscale sidecar. It serves `https://<project>-<env>.<tailnet>.ts.net` and proxies to
-`HTTP` and `PORTS` by service name over the environment's compose network.
+### 5.2 Compose files
 
 Rules:
 
 - Do not define a service named `ts` or a volume named `ts-state`.
-- Do not publish ports (`ports:`); only the sidecar should reach the services.
-- Do not give data volumes a fixed `name:`; every environment needs its own.
+- Do not give volumes a fixed `name:` and do not make data volumes `external`; every environment needs its
+  own. (`validate` reports both.)
 - Secrets that services share, such as a database password, belong in `SECRETS`, so that a copied database
   and the services of the PR environment agree on them.
 
@@ -167,6 +175,8 @@ tailnet-preview url ENV | info ENV | list         show URLs; info: url, tag and 
 tailnet-preview backup                            archive the baseline's DATA_VOLUMES, keep KEEP_BACKUPS
 tailnet-preview prune [OPEN_PR_NUMBERS…]          destroy environments of closed PRs, remove unused images
 tailnet-preview doctor ENV                        read-only diagnostics
+tailnet-preview validate                          check the configuration without deploying (needs the docker CLI only)
+tailnet-preview init                              write a commented .tailnet-preview/ to start from
 tailnet-preview compose ENV ARGS…                 run docker compose for an environment
 tailnet-preview host-check                        check the host's prerequisites
 ```
