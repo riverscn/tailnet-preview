@@ -1,0 +1,646 @@
+#!/usr/bin/env bash
+# tailnet-preview: per-PR preview environments on your own host, reachable only via your tailnet.
+# See docs/design.md for the model and the project configuration this script reads.
+#
+# Usage: tailnet-preview <command> [args]
+#
+#   build [--tag TAG]                  build the project's images (skips images that already exist)
+#   has ENV                            exit 0 if the environment exists, 2 if not
+#   deploy ENV [--tag TAG] [--fresh]   create or upgrade an environment; prints its URL on stdout
+#   reset ENV [--tag TAG]              recreate an environment (baseline: back up first, keep its node)
+#   destroy ENV [--force]              remove containers, volumes, database and Tailscale node
+#   stop ENV | start ENV               stop or start an environment, keeping its data
+#   url ENV | list                     show URLs
+#   backup                             dump the baseline database, keep the newest KEEP_BACKUPS
+#   prune [OPEN_PR_NUMBERS...]         destroy environments of closed PRs, remove unused images
+#   doctor ENV                         read-only diagnostics
+#   compose ENV ARGS...                run docker compose for an environment
+#   host-check                         check the host's prerequisites
+#   version                            print the version
+#
+# ENV is "main" (the baseline) or "pr-<number>".
+# Exit codes: 0 success, 1 failure, 3 a limit was hit, 4 the baseline does not exist.
+set -euo pipefail
+
+VERSION=1.0.0-dev
+LIB=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib" && pwd)
+
+log() { printf '[tailnet-preview] %s\n' "$*" >&2; }
+die() {
+  log "error: $*"
+  exit 1
+}
+
+# A failure with a known cause: write "<code>\t<detail>" for the PR comment (docs/design.md section 7).
+FAILURE_FILE=${TP_FAILURE_FILE:-}
+fail() {
+  local code=$1
+  shift
+  if [[ -n $FAILURE_FILE ]]; then printf '%s\t%s\n' "$code" "$*" >"$FAILURE_FILE"; fi
+  die "$*"
+}
+
+# Registry access is retried: flaky links to Docker Hub reset connections independently of the code.
+RETRY_DELAY=${TP_RETRY_DELAY:-15}
+retry() {
+  local n
+  for n in 1 2 3 4 5; do
+    "$@" && return 0
+    ((n < 5)) || break
+    log "attempt $n failed, retrying in $((n * RETRY_DELAY))s: $*"
+    sleep $((n * RETRY_DELAY))
+  done
+  return 1
+}
+
+slugify() { tr '[:upper:]' '[:lower:]' <<<"$1" | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g'; }
+
+# ------------------------------------------------------------------ settings and configuration
+
+SOURCE=$(cd "${TP_SOURCE:-.}" && pwd)
+CONFIG=${TP_CONFIG:-$SOURCE/.tailnet-preview}
+PROJECT=$(slugify "${TP_PROJECT:-$(basename "${GITHUB_REPOSITORY:-$SOURCE}")}")
+[[ -n $PROJECT ]] || die "cannot derive a project name; set TP_PROJECT"
+ROOT=${TP_HOME:-$HOME/previews}/$PROJECT
+HOST_CONFIG=${TP_HOST_CONFIG:-$HOME/.config/tailnet-preview/env}
+SECRETS_FILE=$ROOT/secrets.env
+NETWORK=$PROJECT-preview
+PG_CONTAINER=$PROJECT-preview-postgres
+CONFIG_KEYS=" IMAGES HTTP PORTS HEALTH_PATH DB_OWNER SECRETS MAX_ENVS MIN_FREE_MB POSTGRES_IMAGE KEEP_BACKUPS "
+
+# config.env is parsed, not sourced: KEY=value lines, '#' comments, optional surrounding quotes.
+load_config() {
+  local dir=${1:-$CONFIG} line key value
+  [[ -f $dir/config.env ]] || fail config "missing $dir/config.env (docs/design.md section 5)"
+  [[ -f $dir/compose.yaml ]] || fail config "missing $dir/compose.yaml (docs/design.md section 5)"
+  IMAGES='' HTTP='' PORTS='' HEALTH_PATH=/ DB_OWNER=postgres SECRETS='' MAX_ENVS=8 MIN_FREE_MB=1536
+  POSTGRES_IMAGE=postgres:17-alpine KEEP_BACKUPS=7
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line%%#*}
+    [[ $line =~ ^[[:space:]]*$ ]] && continue
+    [[ $line =~ ^[[:space:]]*([A-Z_]+)=(.*)$ ]] || fail config "config.env: cannot parse: $line"
+    key=${BASH_REMATCH[1]}
+    value=$(sed -E 's/^[[:space:]]+|[[:space:]]+$//g; s/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/' <<<"${BASH_REMATCH[2]}")
+    [[ $CONFIG_KEYS == *" $key "* ]] || fail config "config.env: unknown key $key"
+    printf -v "$key" '%s' "$value"
+  done <"$dir/config.env"
+  [[ -n $IMAGES ]] || fail config "config.env: IMAGES is required"
+  [[ $HTTP =~ ^[a-z0-9][a-z0-9_.-]*:[0-9]+$ ]] || fail config "config.env: HTTP must be service:port, got '$HTTP'"
+  local port
+  for port in $PORTS; do
+    [[ $port =~ ^[0-9]+=[a-z0-9][a-z0-9_.-]*:[0-9]+$ ]] || fail config "config.env: bad PORTS entry '$port'"
+  done
+  [[ $HEALTH_PATH == /* ]] || fail config "config.env: HEALTH_PATH must start with /"
+  [[ $MAX_ENVS =~ ^[0-9]+$ && $MIN_FREE_MB =~ ^[0-9]+$ && $KEEP_BACKUPS =~ ^[0-9]+$ ]] ||
+    fail config "config.env: MAX_ENVS, MIN_FREE_MB and KEEP_BACKUPS must be numbers"
+}
+
+image_var() { printf 'TP_IMAGE_%s' "$(tr '[:lower:]-' '[:upper:]_' <<<"$1")"; }
+
+random_secret() { head -c 32 /dev/urandom | base64 | tr -d '/+=\n' | head -c 40; }
+
+# Secrets: generated once per project on the host. TS_OAUTH_SECRET comes from the environment (a
+# repository secret) or the machine-wide host configuration.
+load_secrets() {
+  local ts=${TS_OAUTH_SECRET:-} name
+  if [[ -z $ts && -f $HOST_CONFIG ]]; then
+    # shellcheck disable=SC1090
+    ts=$(set -a && source "$HOST_CONFIG" && printf '%s' "${TS_OAUTH_SECRET:-}")
+  fi
+  [[ -n $ts ]] || fail ts_secret "no TS_OAUTH_SECRET: put it in $HOST_CONFIG or a repository secret (docs/host-setup.md)"
+  TS_TAGS=${TS_TAGS:-}
+  if [[ -z $TS_TAGS && -f $HOST_CONFIG ]]; then
+    # shellcheck disable=SC1090
+    TS_TAGS=$(set -a && source "$HOST_CONFIG" && printf '%s' "${TS_TAGS:-}")
+  fi
+  TS_TAGS=${TS_TAGS:-tag:preview}
+  mkdir -p "$ROOT"
+  (umask 077 && touch "$SECRETS_FILE")
+  for name in POSTGRES_PASSWORD TP_DB_PASSWORD $SECRETS; do
+    [[ $name =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || fail config "config.env: bad SECRETS name '$name'"
+    grep -q "^$name=" "$SECRETS_FILE" || {
+      printf '%s=%s\n' "$name" "$(random_secret)" >>"$SECRETS_FILE"
+      log "generated $name"
+    }
+  done
+  chmod 600 "$SECRETS_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  source "$SECRETS_FILE"
+  set +a
+  TS_OAUTH_SECRET=$ts
+}
+
+# ------------------------------------------------------------------ images
+
+pull_missing() {
+  local image
+  for image in $("$@" config --images); do
+    [[ $image == "$PROJECT"-* ]] && continue
+    docker image inspect "$image" >/dev/null 2>&1 && continue
+    log "pulling $image"
+    retry docker pull -q "$image" >/dev/null ||
+      fail registry "pulling $image failed (the host's connection to the registry, docs/troubleshooting.md)"
+  done
+}
+
+default_tag() { git -C "$SOURCE" rev-parse HEAD 2>/dev/null | cut -c1-12; }
+
+images_exist() {
+  local tag=$1 entry
+  for entry in $IMAGES; do
+    docker image inspect "$PROJECT-${entry%%=*}:$tag" >/dev/null 2>&1 || return 1
+  done
+}
+
+cmd_build() {
+  local tag=''
+  while (($#)); do
+    case $1 in
+      --tag) tag=$2 && shift 2 ;;
+      *) die "build: unknown argument $1" ;;
+    esac
+  done
+  load_config
+  tag=${tag:-$(default_tag)}
+  [[ -n $tag ]] || die "build: no --tag and $SOURCE is not a git checkout"
+  if images_exist "$tag"; then
+    log "images $tag already exist"
+    return
+  fi
+  local entry name file
+  for entry in $IMAGES; do
+    name=${entry%%=*} file=${entry#*=}
+    [[ $entry == *=* && -f $SOURCE/$file ]] || fail config "config.env: IMAGES entry '$entry': no such Dockerfile in $SOURCE"
+    log "building $PROJECT-$name:$tag from $file"
+    retry docker build --label "tailnet-preview.project=$PROJECT" -t "$PROJECT-$name:$tag" -f "$SOURCE/$file" "$SOURCE" >&2 ||
+      fail build "building image $name failed"
+  done
+}
+
+# ------------------------------------------------------------------ database
+
+psql_admin() { docker exec -i "$PG_CONTAINER" psql -v ON_ERROR_STOP=1 -X -q -U postgres -d postgres "$@"; }
+
+infra_compose() {
+  docker compose --project-name "$PROJECT-preview-infra" --project-directory "$ROOT/infra" \
+    --env-file "$ROOT/infra/compose.env" -f "$ROOT/infra/compose.yaml" "$@"
+}
+
+ensure_infra() {
+  docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK" >/dev/null
+  mkdir -p "$ROOT/infra"
+  cp "$LIB/compose.postgres.yaml" "$ROOT/infra/compose.yaml"
+  (
+    umask 077
+    printf 'PG_CONTAINER=%s\nTP_NETWORK=%s\nPOSTGRES_IMAGE=%s\nPOSTGRES_PASSWORD=%s\n' \
+      "$PG_CONTAINER" "$NETWORK" "$POSTGRES_IMAGE" "$POSTGRES_PASSWORD" >"$ROOT/infra/compose.env"
+  )
+  pull_missing infra_compose
+  infra_compose up -d --wait >/dev/null
+}
+
+# Project roles: db-init.sql runs before every deploy and must be idempotent.
+init_db_roles() {
+  local dir=$1
+  [[ -f $dir/db-init.sql ]] || return 0
+  psql_admin -v password="$TP_DB_PASSWORD" <"$dir/db-init.sql" || fail config "db-init.sql failed"
+}
+
+db_name() { printf 'tp_%s' "${1//-/_}"; }
+
+db_exists() { [[ $(psql_admin -At -c "SELECT 1 FROM pg_database WHERE datname = '$(db_name "$1")'") == 1 ]]; }
+
+create_db() {
+  local name=$1 dir=$2 template=${3:-} db
+  db=$(db_name "$name")
+  if [[ -n $template ]]; then
+    psql_admin -c "CREATE DATABASE \"$db\" TEMPLATE \"$(db_name "$template")\" OWNER \"$DB_OWNER\""
+  else
+    psql_admin -c "CREATE DATABASE \"$db\" OWNER \"$DB_OWNER\""
+  fi
+  if [[ -f $dir/db-created.sql ]]; then
+    psql_admin -v db="$db" -v password="$TP_DB_PASSWORD" <"$dir/db-created.sql" || fail config "db-created.sql failed"
+  fi
+}
+
+drop_db() { psql_admin -c "DROP DATABASE IF EXISTS \"$(db_name "$1")\" WITH (FORCE)"; }
+
+# ------------------------------------------------------------------ environments
+
+check_name() { [[ $1 == main || $1 =~ ^pr-[0-9]+$ ]] || die "environment must be main or pr-<number>, got '$1'"; }
+
+env_dir() { printf '%s/envs/%s' "$ROOT" "$1"; }
+
+# The URL comes from the sidecar's real node name after login (resolve_url), so the tailnet's domain is
+# never configured.
+app_url() { cat "$(env_dir "$1")/url" 2>/dev/null || echo '(unknown)'; }
+
+compose_env() {
+  local dir
+  dir=$(env_dir "$1")
+  shift
+  docker compose --project-directory "$dir/project" --env-file "$dir/compose.env" \
+    -f "$dir/overlay.yaml" -f "$dir/project/compose.yaml" "$@"
+}
+
+# Created successfully at least once. A half-created environment is recreated, not upgraded.
+env_exists() { [[ -f $(env_dir "$1")/initialized ]] && db_exists "$1"; }
+
+pr_env_count() { find "$ROOT/envs" -mindepth 1 -maxdepth 1 -type d -name 'pr-*' 2>/dev/null | wc -l; }
+
+free_mb() { awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo; }
+
+has_task() { compose_env "$1" --profile tasks config --services 2>/dev/null | grep -qx "$2"; }
+
+# Services that stay running (default profile), except the sidecar.
+app_services() { compose_env "$1" config --services | grep -vx ts || true; }
+
+serve_json() {
+  local tcp web entry port target
+  tcp="\"443\": { \"HTTPS\": true }"
+  web="\"\${TS_CERT_DOMAIN}:443\": { \"Handlers\": { \"/\": { \"Proxy\": \"http://$HTTP\" } } }"
+  for entry in $PORTS; do
+    port=${entry%%=*} target=${entry#*=}
+    tcp+=", \"$port\": { \"HTTPS\": true }"
+    web+=", \"\${TS_CERT_DOMAIN}:$port\": { \"Handlers\": { \"/\": { \"Proxy\": \"http://$target\" } } }"
+  done
+  printf '{\n  "TCP": { %s },\n  "Web": { %s }\n}\n' "$tcp" "$web"
+}
+
+# Copy the project configuration and write the interpolation variables. Called twice per deploy: before
+# the sidecar is up (URL may be unknown) and after (final URL).
+write_env() {
+  local name=$1 tag=$2 dir ephemeral entry var url
+  dir=$(env_dir "$name")
+  mkdir -p "$dir/tailscale"
+  rm -rf "$dir/project"
+  cp -R "$CONFIG" "$dir/project"
+  cp "$LIB/compose.overlay.yaml" "$dir/overlay.yaml"
+  serve_json >"$dir/tailscale/serve.json"
+  # The baseline's node is persistent (stable address); PR nodes are ephemeral and vanish when removed.
+  ephemeral=$([[ $name == main ]] && echo false || echo true)
+  url=$(cat "$dir/url" 2>/dev/null || true)
+  {
+    printf 'COMPOSE_PROJECT_NAME=%s\n' "$PROJECT-$name"
+    printf 'TP_PROJECT=%s\nTP_ENV=%s\nTP_URL=%s\nTP_HOSTNAME=%s\nTP_ENV_DIR=%s\nTP_NETWORK=%s\n' \
+      "$PROJECT" "$name" "$url" "$PROJECT-$name" "$dir" "$NETWORK"
+    printf 'TP_DB_HOST=%s\nTP_DB_PORT=5432\nTP_DB_NAME=%s\nTP_DB_PASSWORD=%s\n' \
+      "$PG_CONTAINER" "$(db_name "$name")" "$TP_DB_PASSWORD"
+    printf 'TP_TS_AUTHKEY=%s?ephemeral=%s&preauthorized=true\nTP_TS_TAGS=%s\n' "$TS_OAUTH_SECRET" "$ephemeral" "$TS_TAGS"
+    [[ -z ${TP_TS_IMAGE:-} ]] || printf 'TP_TS_IMAGE=%s\n' "$TP_TS_IMAGE"
+    for entry in $IMAGES; do
+      printf '%s=%s\n' "$(image_var "${entry%%=*}")" "$PROJECT-${entry%%=*}:$tag"
+    done
+    for var in $SECRETS; do
+      printf '%s=%s\n' "$var" "${!var}"
+    done
+  } >"$dir/compose.env.new"
+  chmod 600 "$dir/compose.env.new"
+  mv "$dir/compose.env.new" "$dir/compose.env"
+  printf '%s\n' "$tag" >"$dir/tag"
+}
+
+# Start the sidecar, wait until it is logged in, record its HTTPS address. In `tailscale status --json`,
+# Self's DNSName comes before the peers'.
+resolve_url() {
+  local name=$1 dir json dns i
+  dir=$(env_dir "$name")
+  pull_missing compose_env "$name"
+  compose_env "$name" up -d ts >&2
+  for ((i = 0; i < 60; i++)); do
+    json=$(compose_env "$name" exec -T ts tailscale status --json 2>/dev/null || true)
+    if grep -q '"BackendState": *"Running"' <<<"$json"; then
+      dns=$(grep -m1 -o '"DNSName": *"[^"]*"' <<<"$json" | sed -E 's/.*"([^"]*)"$/\1/; s/\.$//')
+      if [[ -n $dns ]]; then
+        printf 'https://%s\n' "$dns" >"$dir/url"
+        return
+      fi
+    fi
+    sleep 2
+  done
+  fail ts_login "$name: the Tailscale sidecar did not log in within two minutes (docker logs $PROJECT-$name-ts-1)"
+}
+
+prepare_env() {
+  local name=$1 tag=$2
+  write_env "$name" "$tag"
+  resolve_url "$name"
+  write_env "$name" "$tag"
+}
+
+run_task() {
+  local name=$1 task=$2 code=$3
+  has_task "$name" "$task" || return 0
+  log "$name: running $task"
+  compose_env "$name" --profile tasks run --rm "$task" >&2 || fail "$code" "$name: $task failed"
+}
+
+# The tailnet issues HTTPS certificates only if they are enabled; then CertDomains lists the node's name.
+https_enabled() {
+  compose_env "$1" exec -T ts tailscale status --json 2>/dev/null | tr -d ' \t\n' | grep -q '"CertDomains":\["'
+}
+
+# Request the health path through the same upstream the sidecar proxies to; new backends need a moment.
+wait_healthy() {
+  local name=$1 i svc
+  for ((i = 0; i < ${TP_HEALTH_TIMEOUT:-120} / 2; i++)); do
+    compose_env "$name" exec -T ts wget -q -O /dev/null "http://$HTTP$HEALTH_PATH" 2>/dev/null && return 0
+    sleep 2
+  done
+  for svc in $(app_services "$name"); do
+    log "== logs of $svc"
+    compose_env "$name" logs --no-color --tail 30 "$svc" >&2 || true
+  done
+  fail health "$name: http://$HTTP$HEALTH_PATH did not answer within ${TP_HEALTH_TIMEOUT:-120}s (logs above)"
+}
+
+# Copying needs a template database without connections: stop the baseline's services, copy, and start
+# them again whether or not the copy worked. The baseline is unavailable for a few seconds.
+fork_db() {
+  local name=$1 rc=0 services
+  services=$(app_services main)
+  log "$name: copying the baseline database (the baseline pauses for a few seconds)"
+  # shellcheck disable=SC2086
+  [[ -z $services ]] || compose_env main stop $services >&2
+  {
+    psql_admin -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+                    WHERE datname = '$(db_name main)' AND pid <> pg_backend_pid()" >/dev/null &&
+      create_db "$name" "$CONFIG" main
+  } || rc=$?
+  # shellcheck disable=SC2086
+  [[ -z $services ]] || compose_env main start $services >&2
+  return "$rc"
+}
+
+# Empty database -> migrate -> seed. Used for the baseline and for PRs that have no baseline to copy.
+create_fresh() {
+  local name=$1 tag=$2
+  log "$name: creating from an empty database"
+  ! db_exists "$name" || drop_db "$name"
+  create_db "$name" "$CONFIG"
+  prepare_env "$name" "$tag"
+  run_task "$name" migrate migrate
+  run_task "$name" seed seed
+  compose_env "$name" up -d --remove-orphans >&2
+}
+
+upgrade() {
+  local name=$1 tag=$2
+  prepare_env "$name" "$tag"
+  run_task "$name" migrate migrate
+  compose_env "$name" up -d --remove-orphans >&2
+}
+
+parse_tag_args() {
+  TAG='' FRESH=''
+  while (($#)); do
+    case $1 in
+      --tag) TAG=$2 && shift 2 ;;
+      --fresh) FRESH=1 && shift ;;
+      *) die "unknown argument $1" ;;
+    esac
+  done
+  TAG=${TAG:-$(default_tag)}
+  [[ -n $TAG ]] || die "no --tag and $SOURCE is not a git checkout"
+}
+
+cmd_deploy() {
+  local name=$1
+  shift
+  check_name "$name"
+  parse_tag_args "$@"
+  load_config
+  load_secrets
+  ensure_infra
+  init_db_roles "$CONFIG"
+  images_exist "$TAG" || die "images for $TAG do not exist; run build first"
+  if env_exists "$name"; then
+    log "$name: upgrading to $TAG"
+    upgrade "$name" "$TAG"
+  elif [[ $name == main ]]; then
+    create_fresh main "$TAG"
+  else
+    [[ -n $FRESH ]] || env_exists main || {
+      log "the baseline does not exist"
+      exit 4
+    }
+    if (($(pr_env_count) >= MAX_ENVS)) && [[ ! -d $(env_dir "$name") ]]; then
+      log "limit reached: $MAX_ENVS PR environments"
+      exit 3
+    fi
+    if (($(free_mb) < MIN_FREE_MB)); then
+      log "limit reached: $(free_mb)MB available memory, less than $MIN_FREE_MB MB"
+      exit 3
+    fi
+    if [[ -n $FRESH ]]; then
+      create_fresh "$name" "$TAG"
+    else
+      ! db_exists "$name" || drop_db "$name"
+      fork_db "$name"
+      upgrade "$name" "$TAG"
+    fi
+  fi
+  wait_healthy "$name"
+  touch "$(env_dir "$name")/initialized"
+  # The environment exists from here on (the next deploy upgrades it); only browsers cannot connect yet.
+  https_enabled "$name" ||
+    fail https "$name: the tailnet does not issue HTTPS certificates, browsers cannot open $(app_url "$name")"
+  log "$name: ready at $(app_url "$name")"
+  app_url "$name" >&3
+}
+
+# Log out first so the node leaves the tailnet at once and a recreated environment keeps its name.
+cmd_destroy() {
+  local name=$1 force=${2:-} dir
+  check_name "$name"
+  [[ $name != main || $force == --force ]] || die "destroying the baseline needs --force; use reset to start it over"
+  dir=$(env_dir "$name")
+  if [[ -f $dir/compose.env ]]; then
+    compose_env "$name" exec -T ts tailscale logout >/dev/null 2>&1 || true
+    compose_env "$name" down -v --remove-orphans >&2 || true
+  fi
+  if docker container inspect "$PG_CONTAINER" >/dev/null 2>&1; then drop_db "$name"; fi
+  rm -rf "$dir"
+  log "$name: destroyed"
+}
+
+cmd_reset() {
+  local name=$1
+  shift
+  check_name "$name"
+  if [[ $name == main ]]; then
+    load_config
+    load_secrets
+    ensure_infra
+    if env_exists main; then cmd_backup; fi
+    if [[ -f $(env_dir main)/compose.env ]]; then
+      local services
+      services=$(app_services main)
+      # shellcheck disable=SC2086
+      [[ -z $services ]] || compose_env main stop $services >&2
+    fi
+    rm -f "$(env_dir main)/initialized"
+    drop_db main
+  else
+    cmd_destroy "$name"
+  fi
+  cmd_deploy "$name" "$@"
+}
+
+cmd_backup() {
+  load_config
+  load_secrets
+  ensure_infra
+  db_exists main || {
+    log "the baseline database does not exist, nothing to back up"
+    return
+  }
+  mkdir -p "$ROOT/backups"
+  local file
+  file=$ROOT/backups/main-$(date +%Y%m%d-%H%M%S).dump
+  docker exec "$PG_CONTAINER" pg_dump -U postgres -Fc "$(db_name main)" >"$file"
+  log "backed up to $file"
+  find "$ROOT/backups" -name 'main-*.dump' -type f | sort -r | tail -n +$((KEEP_BACKUPS + 1)) | xargs -r rm -f
+}
+
+cmd_prune() {
+  local open=" $* " dir name used image
+  for dir in "$ROOT"/envs/pr-*; do
+    [[ -d $dir ]] || continue
+    name=$(basename "$dir")
+    [[ $open == *" ${name#pr-} "* ]] || cmd_destroy "$name"
+  done
+  used=$(cat "$ROOT"/envs/*/tag 2>/dev/null | sort -u || true)
+  for image in $(docker images --filter "label=tailnet-preview.project=$PROJECT" --format '{{.Repository}}:{{.Tag}}'); do
+    grep -qx "${image##*:}" <<<"$used" || docker rmi "$image" >/dev/null 2>&1 || true
+  done
+  docker image prune -f >/dev/null
+  docker builder prune -f --filter until=168h >/dev/null 2>&1 || true
+}
+
+redact() { sed -E 's/(tskey-[a-z]+-)[A-Za-z0-9_-]+/\1***/g'; }
+
+# Read-only; every check continues on failure.
+cmd_doctor() {
+  local name=$1 dir entry svc
+  check_name "$name"
+  dir=$(env_dir "$name")
+  [[ -f $dir/compose.env ]] || {
+    echo "$name does not exist on this host"
+    return
+  }
+  # The copied configuration describes this environment, even if the checkout has changed since.
+  CONFIG=$dir/project
+  load_config "$CONFIG"
+  echo "== url: $(app_url "$name")"
+  echo "== containers"
+  compose_env "$name" ps -a || true
+  echo "== tailscale node"
+  compose_env "$name" exec -T ts tailscale status --self --peers=false 2>&1 | redact || true
+  echo "== https certificates"
+  if https_enabled "$name"; then
+    echo "enabled for the tailnet"
+  else
+    echo "NOT enabled for the tailnet (docs/troubleshooting.md)"
+  fi
+  echo "== tailscale serve"
+  compose_env "$name" exec -T ts tailscale serve status 2>&1 || true
+  echo "== upstreams, requested from the sidecar"
+  local targets=("$HTTP$HEALTH_PATH")
+  for entry in $PORTS; do targets+=("${entry#*=}/"); done
+  for entry in "${targets[@]}"; do
+    printf 'http://%s: ' "$entry"
+    if compose_env "$name" exec -T ts wget -q -O /dev/null "http://$entry" 2>&1; then echo ok; fi
+  done
+  for svc in ts $(app_services "$name"); do
+    echo "== logs of $svc"
+    compose_env "$name" logs --no-color --tail 30 "$svc" 2>&1 | redact || true
+  done
+}
+
+cmd_list() {
+  local dir
+  for dir in "$ROOT"/envs/*; do
+    [[ -d $dir ]] || continue
+    printf '%-10s %-13s %s\n' "$(basename "$dir")" "$(cat "$dir/tag" 2>/dev/null)" "$(cat "$dir/url" 2>/dev/null)"
+  done
+}
+
+cmd_host_check() {
+  local ok=1
+  check() {
+    if eval "$2" >/dev/null 2>&1; then echo "ok    $1"; else
+      echo "FAIL  $1${3:+ – $3}"
+      ok=0
+    fi
+  }
+  check "docker daemon reachable" "docker info" "install Docker and add this user to the docker group"
+  check "docker compose v2" "docker compose version"
+  check "flock" "command -v flock" "install util-linux"
+  check "git" "command -v git"
+  check "TS_OAUTH_SECRET" "[[ -n \${TS_OAUTH_SECRET:-} ]] || grep -q '^TS_OAUTH_SECRET=.' '$HOST_CONFIG'" \
+    "write it to $HOST_CONFIG (docs/host-setup.md)"
+  check "host configuration not readable by others" "[[ ! -f '$HOST_CONFIG' ]] || [[ \$(stat -c %a '$HOST_CONFIG') == 600 ]]" \
+    "chmod 600 $HOST_CONFIG"
+  echo "info  available memory: $(free_mb) MB"
+  echo "info  free disk in $HOME: $(df -Pm "$HOME" | awk 'NR == 2 { print $4 }') MB"
+  ((ok)) || exit 1
+}
+
+# State-changing commands of a project run one at a time: a fork pauses the baseline and must not
+# interleave with the baseline's own upgrade.
+lock() {
+  mkdir -p "$ROOT"
+  exec 9>"$ROOT/.lock"
+  flock -w 1800 9 || die "timed out waiting for another deploy of $PROJECT"
+}
+
+main() {
+  local cmd=${1:-}
+  shift || true
+  case $cmd in
+    deploy | reset | destroy | backup | prune) lock ;;
+  esac
+  case $cmd in
+    build) cmd_build "$@" ;;
+    has)
+      check_name "${1:-}"
+      load_config
+      load_secrets
+      ensure_infra
+      env_exists "$1" || exit 2
+      ;;
+    # stdout carries only the URL; everything else goes to stderr.
+    deploy) cmd_deploy "$@" 3>&1 1>&2 ;;
+    reset) cmd_reset "$@" 3>&1 1>&2 ;;
+    destroy) cmd_destroy "$@" ;;
+    stop | start)
+      check_name "${1:-}"
+      compose_env "$1" "$cmd"
+      ;;
+    url)
+      check_name "${1:-}"
+      app_url "$1"
+      ;;
+    list) cmd_list ;;
+    backup) cmd_backup ;;
+    prune) cmd_prune "$@" ;;
+    doctor) cmd_doctor "$@" ;;
+    compose)
+      check_name "${1:-}"
+      local name=$1
+      shift
+      compose_env "$name" "$@"
+      ;;
+    host-check) cmd_host_check ;;
+    version) echo "$VERSION" ;;
+    -h | --help | help) sed -n '2,24p' "$0" | sed -E 's/^# ?//' ;;
+    *)
+      sed -n '2,24p' "$0" | sed -E 's/^# ?//' >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
