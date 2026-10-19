@@ -209,7 +209,8 @@ check waits until the sidecar runs: a sidecar that is (re)starting reports no ce
 A deploy that succeeds can still leave something the PR should mention: the engine writes
 `<code><TAB><detail>` to `TP_NOTICE_FILE` and the comment adds it to "ready". The only notice is `cert`.
 Tailscale requests a node's certificate on the first visit, where a failure only shows as a TLS error in
-the browser, so the deploy requests it once the health check passes. Let's Encrypt validates the DNS
+the browser, so the deploy requests it once the health check passes, waiting at most a minute
+(`TP_CERT_TIMEOUT`) and stopping the previous deploy's retry loop first, whose request would hold it up. Let's Encrypt validates the DNS
 record Tailscale publishes in the same second it is set, and rejects the order when the record has not
 reached public DNS yet (`NXDOMAIN`, or `Incorrect TXT record` when only older values are visible). That is
 a timing problem between the two services, not the PR's, so the deploy succeeds with the notice `cert`,

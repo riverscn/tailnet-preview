@@ -431,14 +431,22 @@ https_enabled() {
 # again validates at once, and spends one of its five failed validations per name and hour. Prints the
 # error, with Let's Encrypt's reason when it can be fetched, on failure.
 issue_cert() {
-  local name=$1 domain out order reason
+  local name=$1 domain out order reason rc=0 limit=${TP_CERT_TIMEOUT:-60}
   domain=$(app_url "$name")
   domain=${domain#https://}
+  # A request still running from the previous deploy's background loop would make this one wait for it.
   # shellcheck disable=SC2016 # expanded by the container's shell
-  out=$(compose_env "$name" exec -T ts timeout "${TP_CERT_TIMEOUT:-180}" sh -c \
+  compose_env "$name" exec -T ts sh -c 'pid=/tmp/tp-cert-retry.pid; [ -f $pid ] && kill "$(cat $pid)"; rm -f $pid' \
+    >/dev/null 2>&1 || true
+  # Bounded: when Let's Encrypt or Tailscale is slow, the background loop takes over instead of the deploy.
+  # shellcheck disable=SC2016 # expanded by the container's shell
+  out=$(compose_env "$name" exec -T ts timeout "$limit" sh -c \
     'tailscale cert --cert-file /tmp/tp.crt --key-file /tmp/tp.key "$1"; rc=$?; rm -f /tmp/tp.crt /tmp/tp.key; exit $rc' \
-    _ "$domain" 2>&1) && return 0
+    _ "$domain" 2>&1) || rc=$?
+  ((rc != 0)) || return 0
   out=$(tail -n 1 <<<"$out")
+  # BusyBox timeout ends the command with SIGTERM (exit 143).
+  if ((rc == 143 || rc == 124)); then out="no answer within ${limit}s (a request for this name may still be running)"; fi
   # "order ... status: invalid" does not say why; the order's authorization does.
   order=$(grep -oE 'https://acme[^ ]*/order/[0-9]+/[0-9]+' <<<"$out" | sed -n 1p) || true
   if [[ -n $order ]]; then

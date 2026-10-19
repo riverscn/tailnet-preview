@@ -4,6 +4,12 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+### Fixed
+
+- A deploy waited up to three minutes for the certificate when a request was already running (the
+  previous deploy's background retries, or one Tailscale started itself). It now stops the previous retries
+  first and waits at most a minute (`TP_CERT_TIMEOUT`) before leaving it to the background retries.
+
 ## 0.2.0 - 2026-10-19
 
 ### Added
