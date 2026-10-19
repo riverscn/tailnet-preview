@@ -3,7 +3,7 @@
 # Fake tailscale CLI. In /var/lib/tailscale: `no-https` makes the tailnet behave as if HTTPS certificates
 # were disabled; `cert-invalid` and `cert-ratelimited` make certificate requests fail like Let's Encrypt
 # does; every request is appended to `cert-requests`. `starting` holds "S N": after S more status calls, N
-# calls report a sidecar that restarted and is still logging in.
+# calls report a sidecar that restarted and is still logging in. `cert-slow` makes certificate requests hang.
 domain="${TS_HOSTNAME}.fake-tailnet.ts.net"
 state=/var/lib/tailscale
 case "$1 $2" in
@@ -38,6 +38,7 @@ JSON
   'logout '*) echo "logged out" ;;
   'cert '*)
     echo "$*" >>$state/cert-requests
+    if [ -f $state/cert-slow ]; then sleep 30; fi
     if [ -f $state/cert-ratelimited ]; then
       echo "getCertPEM: 429 urn:ietf:params:acme:error:rateLimited: too many failed authorizations (5)" >&2
       exit 1

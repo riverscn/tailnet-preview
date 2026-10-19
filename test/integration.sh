@@ -186,6 +186,17 @@ grep -q issued <<<"$(retry_log)" || fatal "a background retry gets the certifica
 grep -q issued <<<"$("$TP" doctor pr-2)" || fatal "doctor shows the background retries"
 ok "the sidecar retries in the background until the certificate is issued; doctor shows it"
 
+# A request that hangs (Let's Encrypt or Tailscale slow) does not hold the deploy up.
+"$TP" compose pr-2 exec -T ts touch /var/lib/tailscale/cert-slow
+rm -f "$TP_NOTICE_FILE"
+start=$SECONDS
+TP_CERT_TIMEOUT=3 run deploy pr-2 --tag "$TAG"
+expect_rc 0 "deploy with a hanging certificate request succeeds"
+((SECONDS - start < 25)) || fatal "a hanging certificate request held the deploy for $((SECONDS - start))s"
+grep -q 'no answer within 3s' "$TP_NOTICE_FILE" || fatal "notice cert says the request hung: $(cat "$TP_NOTICE_FILE")"
+ok "a hanging certificate request is cut off and left to the background loop"
+"$TP" compose pr-2 exec -T ts rm /var/lib/tailscale/cert-slow
+
 limited=$(variant limited) && echo 'MAX_ENVS=2' >>"$limited/config.env"
 TP_CONFIG=$limited run deploy pr-3 --tag "$TAG"
 expect_rc 3 "limit of PR environments exits 3"
