@@ -690,26 +690,11 @@ ensure_ingress() {
   # Some networks answer every DNS query on port 53 themselves (from a cache that remembers the validation
   # record as missing for up to the zone's negative TTL), so no resolver can confirm it from here: wait a
   # fixed time instead, then let Let's Encrypt validate from its own resolvers.
-  # Otherwise lego looks up the authoritative servers through the public resolvers that answer from here:
-  # some networks block a resolver outright (SERVFAIL or no answer).
-  local delay=${TP_INGRESS_DNS_DELAY:-} resolvers=() r
-  if [[ -z $delay && -n ${TP_INGRESS_DNS_PROVIDER:-} ]]; then
-    if ingress_exec timeout 5 nslookup -type=A example.com 192.0.2.1 >/dev/null 2>&1; then
-      delay=60
-      log "this network intercepts DNS queries (192.0.2.1 answered), so the ingress cannot check the validation record; it waits ${delay}s instead (TP_INGRESS_DNS_DELAY)"
-    else
-      for r in ${TP_INGRESS_DNS_RESOLVERS:-1.1.1.1:53 8.8.8.8:53 223.5.5.5:53 119.29.29.29:53}; do
-        if [[ $r != *:53 ]] || ingress_exec timeout 5 nslookup -type=A example.com "${r%:53}" >/dev/null 2>&1; then
-          resolvers+=("$r")
-        else
-          log "DNS resolver $r does not answer from this host; not used to check the validation record"
-        fi
-      done
-      if ((${#resolvers[@]} == 0)); then
-        delay=60
-        log "no DNS resolver answers from this host; the ingress waits ${delay}s instead of checking the validation record"
-      fi
-    fi
+  local delay=${TP_INGRESS_DNS_DELAY:-} r
+  if [[ -z $delay && -n ${TP_INGRESS_DNS_PROVIDER:-} ]] &&
+    ingress_exec timeout 5 nslookup -type=A example.com 192.0.2.1 >/dev/null 2>&1; then
+    delay=60
+    log "this network intercepts DNS queries (192.0.2.1 answered), so the ingress cannot check the validation record; it waits ${delay}s instead (TP_INGRESS_DNS_DELAY)"
   fi
   {
     echo "# Written by tailnet-preview (docs/design.md section 10). Static: changes restart Traefik."
@@ -720,13 +705,13 @@ ensure_ingress() {
       printf 'certificatesResolvers:\n  le:\n    acme:\n      email: "%s"\n      storage: /data/acme.json\n' "$TP_INGRESS_ACME_EMAIL"
       [[ -z ${TP_INGRESS_ACME_CA:-} ]] || printf '      caServer: "%s"\n' "$TP_INGRESS_ACME_CA"
       # Before Let's Encrypt is asked, lego waits until every authoritative name server has the record; it
-      # finds them through these resolvers. Public ones, not the host's, which may intercept or misanswer.
+      # finds them through the host's resolver, or TP_INGRESS_DNS_RESOLVERS.
       printf '      dnsChallenge:\n        provider: %s\n' "$TP_INGRESS_DNS_PROVIDER"
       if [[ -n $delay ]]; then
         printf '        propagation:\n          disableChecks: true\n          delayBeforeChecks: %ss\n' "$delay"
-      else
+      elif [[ -n ${TP_INGRESS_DNS_RESOLVERS:-} ]]; then
         printf '        resolvers:\n'
-        for r in "${resolvers[@]}"; do printf '          - "%s"\n' "$r"; done
+        for r in $TP_INGRESS_DNS_RESOLVERS; do printf '          - "%s"\n' "$r"; done
       fi
     fi
     printf 'log:\n  level: INFO\n'
