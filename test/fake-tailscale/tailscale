@@ -1,0 +1,29 @@
+#!/bin/sh
+# Fake tailscale CLI. `touch /var/lib/tailscale/no-https` makes the tailnet behave as if HTTPS
+# certificates were disabled.
+domain="${TS_HOSTNAME}.fake-tailnet.ts.net"
+case "$1 $2" in
+  'status --json')
+    if [ -f /var/lib/tailscale/no-https ]; then certs=null; else certs="[\"$domain\"]"; fi
+    cat <<EOF
+{
+  "BackendState": "Running",
+  "Self": {
+    "HostName": "${TS_HOSTNAME}",
+    "DNSName": "${domain}."
+  },
+  "CertDomains": ${certs},
+  "Peer": {
+    "nodekey:1": { "DNSName": "someone-else.fake-tailnet.ts.net." }
+  }
+}
+EOF
+    ;;
+  'status --self') echo "100.64.0.1  ${TS_HOSTNAME}  ${domain}  linux  -" ;;
+  'serve status') cat /config/serve.json ;;
+  'logout '*) echo "logged out" ;;
+  *)
+    echo "fake tailscale: unsupported: $*" >&2
+    exit 1
+    ;;
+esac
