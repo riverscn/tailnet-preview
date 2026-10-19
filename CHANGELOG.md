@@ -4,6 +4,8 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+## 0.2.3 - 2026-10-19
+
 ### Fixed
 
 - A deploy job cancelled by a newer push no longer replaces the PR comment with "deploy failed"; the
