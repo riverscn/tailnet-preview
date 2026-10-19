@@ -50,7 +50,8 @@ jobs:
           MODE: ${{ steps.preview.outputs.mode }}
           TP_CONFIG: example/.tailnet-preview
         run: |
-          notes=$(bin/tailnet-preview compose "$ENV_NAME" exec -T ts wget -q -O - http://app:8080/notes)
+          # From the app's own container: there is no sidecar when the host uses the shared ingress.
+          notes=$(bin/tailnet-preview compose "$ENV_NAME" exec -T app wget -q -O - http://localhost:8080/notes)
           echo "$notes"
           case "$MODE" in
             forked) grep -qx 'main seeded' <<<"$notes" ;;
