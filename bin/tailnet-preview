@@ -699,7 +699,7 @@ ensure_ingress() {
       log "this network intercepts DNS queries (192.0.2.1 answered), so the ingress cannot check the validation record; it waits ${delay}s instead (TP_INGRESS_DNS_DELAY)"
     else
       for r in ${TP_INGRESS_DNS_RESOLVERS:-1.1.1.1:53 8.8.8.8:53 223.5.5.5:53 119.29.29.29:53}; do
-        if [[ $r != *:53 ]] || ingress_exec timeout 5 nslookup -type=SOA "$INGRESS_DOMAIN" "${r%:53}" >/dev/null 2>&1; then
+        if [[ $r != *:53 ]] || ingress_exec timeout 5 nslookup -type=A example.com "${r%:53}" >/dev/null 2>&1; then
           resolvers+=("$r")
         else
           log "DNS resolver $r does not answer from this host; not used to check the validation record"
