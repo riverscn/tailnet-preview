@@ -1,0 +1,37 @@
+# What a preview environment needs on top of the project's own compose file (../compose.yaml). Relative
+# paths resolve against that file's directory. tailnet-preview removes the published port and the fixed
+# container name by itself, and adds the Tailscale sidecar.
+x-database: &database
+  PGHOST: db
+  PGUSER: postgres
+  PGPASSWORD: ${DB_PASSWORD}
+  PGDATABASE: example
+  APP_ENV: ${TP_ENV}
+
+x-needs-db: &needs-db
+  db:
+    condition: service_healthy
+
+services:
+  # The image built for this PR, and the environment's own name and address.
+  app:
+    image: ${TP_IMAGE_APP}
+    environment:
+      APP_ENV: ${TP_ENV}
+      APP_URL: ${TP_URL}
+
+  # Tasks: run with `docker compose run --rm`, not kept running.
+  migrate:
+    image: ${TP_IMAGE_APP}
+    profiles: [tasks]
+    environment: *database
+    depends_on: *needs-db
+    command: ['psql', '-v', 'ON_ERROR_STOP=1', '-f', '/app/migrate.sql']
+
+  seed:
+    image: ${TP_IMAGE_APP}
+    profiles: [tasks]
+    environment: *database
+    depends_on: *needs-db
+    command:
+      ['sh', '-c', 'psql -v ON_ERROR_STOP=1 -c "INSERT INTO notes (env, body) VALUES (''$$APP_ENV'', ''seeded'')"']

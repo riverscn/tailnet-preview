@@ -1,0 +1,50 @@
+# The services of a preview environment, database included. Guide: docs/configuring.md of tailnet-preview.
+#
+# tailnet-preview removes published ports and fixed container names, and adds the Tailscale sidecar.
+# Variables available: TP_URL, TP_ENV, TP_PROJECT, TP_IMAGE_<NAME>, and every name in SECRETS.
+services:
+  # TODO: the database, or delete it.
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD} # add DB_PASSWORD to SECRETS in config.env
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres']
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
+
+  # TODO: the application. Tell it its address, and switch anything that reaches the outside world (mail,
+  # SMS, payments) to mocks.
+  web:
+    image: ${TP_IMAGE_WEB}
+    environment:
+      APP_URL: ${TP_URL}
+      DATABASE_URL: postgres://postgres:${DB_PASSWORD}@db:5432/postgres
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # Tasks: run with `docker compose run --rm`, never kept running.
+  # migrate runs before every deploy; seed runs once, when an environment starts with empty data.
+  # TODO: replace the commands, or delete a task the project does not need.
+  migrate:
+    image: ${TP_IMAGE_WEB}
+    profiles: [tasks]
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ['echo', 'TODO: migrate']
+  seed:
+    image: ${TP_IMAGE_WEB}
+    profiles: [tasks]
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ['echo', 'TODO: seed demo data']
+
+volumes:
+  db-data:

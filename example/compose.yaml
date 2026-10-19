@@ -1,0 +1,39 @@
+# The example project's own compose file, the way the project runs anywhere (`docker compose up` in this
+# directory). tailnet-preview runs it unchanged and adds what previews need on top (.tailnet-preview/).
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-example}
+      POSTGRES_DB: example
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres -d example']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  app:
+    build:
+      context: ..
+      dockerfile: example/Dockerfile
+    image: tailnet-preview-example
+    container_name: example-app
+    ports:
+      - '8080:8080'
+    environment:
+      PGHOST: db
+      PGUSER: postgres
+      PGPASSWORD: ${DB_PASSWORD:-example}
+      PGDATABASE: example
+      APP_ENV: local
+      APP_URL: http://localhost:8080
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  db-data:

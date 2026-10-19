@@ -1,0 +1,23 @@
+# Merged with the project's .tailnet-preview/compose.yaml for every environment (docs/design.md 5.2).
+# Interpolation variables come from the environment's compose.env, written by the engine.
+services:
+  # Tailscale sidecar: https://<TP_HOSTNAME>.<tailnet>.ts.net. `tailscale serve` terminates HTTPS and
+  # proxies to the project's services by name over the compose network (tailscale/serve.json).
+  ts:
+    image: ${TP_TS_IMAGE}
+    hostname: ${TP_HOSTNAME}
+    environment:
+      TS_AUTHKEY: ${TP_TS_AUTHKEY}
+      TS_HOSTNAME: ${TP_HOSTNAME}
+      TS_EXTRA_ARGS: --advertise-tags=${TP_TS_TAGS}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_USERSPACE: 'true'
+    volumes:
+      - ts-state:/var/lib/tailscale
+      # A directory, not a single file, so that configuration updates are picked up.
+      - ${TP_ENV_DIR}/tailscale:/config:ro
+    restart: unless-stopped
+
+volumes:
+  ts-state:

@@ -1,0 +1,28 @@
+name: Bug report
+description: Something does not work as documented
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: doctor
+    attributes:
+      label: Output of `tailnet-preview doctor <env>`
+      description: Or the "diagnostics" step of the workflow run. Secrets are redacted, but check before posting.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The action ref (e.g. v1.0.0) or `tailnet-preview version`
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host
+      description: OS, `docker version --format '{{.Server.Version}}'`, `docker compose version`

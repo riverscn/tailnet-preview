@@ -1,0 +1,895 @@
+#!/usr/bin/env bash
+# tailnet-preview: per-PR preview environments on your own host, reachable only via your tailnet.
+# See docs/design.md for the model and the project configuration this script reads.
+#
+# Usage: tailnet-preview <command> [args]
+#
+#   build [--tag TAG]                  build the project's images (skips images that already exist)
+#   has ENV                            exit 0 if the environment exists, 2 if not
+#   deploy ENV [--tag TAG] [--fresh]   create or upgrade an environment; prints its URL on stdout
+#   reset ENV [--tag TAG]              recreate an environment (baseline: back up first, keep its node)
+#   destroy ENV [--force]              remove containers, volumes and the Tailscale node
+#   stop ENV | start ENV               stop or start an environment, keeping its data
+#   url ENV | info ENV | list          show URLs; info adds the tag and how the data was obtained
+#   backup                             archive the baseline's DATA_VOLUMES, keep the newest KEEP_BACKUPS
+#   prune [OPEN_PR_NUMBERS...]         destroy environments of closed PRs, remove unused images
+#   doctor ENV                         read-only diagnostics
+#   validate                           check the project configuration without deploying anything
+#   init                               write a commented .tailnet-preview/ to start from
+#   compose ENV ARGS...                run docker compose for an environment
+#   host-check                         check the host's prerequisites
+#   version                            print the version
+#
+# ENV is "main" (the baseline) or "pr-<number>".
+# Exit codes: 0 success, 1 failure, 3 a limit was hit, 4 the baseline does not exist.
+set -euo pipefail
+
+VERSION=1.0.0-dev
+LIB=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../lib" && pwd)
+
+log() { printf '[tailnet-preview] %s\n' "$*" >&2; }
+die() {
+  log "error: $*"
+  exit 1
+}
+
+# A failure with a known cause: write "<code>\t<detail>" for the PR comment (docs/design.md section 7).
+FAILURE_FILE=${TP_FAILURE_FILE:-}
+fail() {
+  local code=$1
+  shift
+  if [[ -n $FAILURE_FILE ]]; then printf '%s\t%s\n' "$code" "$*" >"$FAILURE_FILE"; fi
+  die "$*"
+}
+
+# Registry access is retried: flaky links to Docker Hub reset connections independently of the code.
+RETRY_DELAY=${TP_RETRY_DELAY:-15}
+retry() {
+  local n
+  for n in 1 2 3 4 5; do
+    "$@" && return 0
+    ((n < 5)) || break
+    log "attempt $n failed, retrying in $((n * RETRY_DELAY))s: $*"
+    sleep $((n * RETRY_DELAY))
+  done
+  return 1
+}
+
+slugify() { tr '[:upper:]' '[:lower:]' <<<"$1" | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g'; }
+
+# ------------------------------------------------------------------ settings and configuration
+
+SOURCE=$(cd "${TP_SOURCE:-.}" && pwd)
+CONFIG=${TP_CONFIG:-$SOURCE/.tailnet-preview}
+PROJECT=$(slugify "${TP_PROJECT:-$(basename "${GITHUB_REPOSITORY:-$SOURCE}")}")
+[[ -n $PROJECT ]] || die "cannot derive a project name; set TP_PROJECT"
+ROOT=${TP_HOME:-$HOME/previews}/$PROJECT
+HOST_CONFIG=${TP_HOST_CONFIG:-$HOME/.config/tailnet-preview/env}
+SECRETS_FILE=$ROOT/secrets.env
+# The sidecar image doubles as the helper for copying and archiving volumes (it has cp and tar).
+TS_IMAGE=${TP_TS_IMAGE:-tailscale/tailscale:stable}
+CONFIG_KEYS=" IMAGES HTTP PORTS HEALTH_PATH COMPOSE_FILES DATA_VOLUMES SECRETS MAX_ENVS MIN_FREE_MB KEEP_BACKUPS "
+
+# config.env is parsed, not sourced: KEY=value lines, '#' comments, optional surrounding quotes.
+load_config() {
+  local dir=${1:-$CONFIG} line key value
+  [[ -f $dir/config.env ]] || fail config "missing $dir/config.env (docs/design.md section 5)"
+  IMAGES='' HTTP='' PORTS='' HEALTH_PATH=/ COMPOSE_FILES=compose.yaml DATA_VOLUMES=auto SECRETS='' MAX_ENVS=8
+  MIN_FREE_MB=1536 KEEP_BACKUPS=7
+  while IFS= read -r line || [[ -n $line ]]; do
+    line=${line%%#*}
+    [[ $line =~ ^[[:space:]]*$ ]] && continue
+    [[ $line =~ ^[[:space:]]*([A-Z_]+)=(.*)$ ]] || fail config "config.env: cannot parse: $line"
+    key=${BASH_REMATCH[1]}
+    value=$(sed -E 's/^[[:space:]]+|[[:space:]]+$//g; s/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/' <<<"${BASH_REMATCH[2]}")
+    [[ $CONFIG_KEYS == *" $key "* ]] || fail config "config.env: unknown key $key"
+    printf -v "$key" '%s' "$value"
+  done <"$dir/config.env"
+  [[ -n $IMAGES ]] || fail config "config.env: IMAGES is required"
+  [[ $HTTP =~ ^[a-z0-9][a-z0-9_.-]*:[0-9]+$ ]] || fail config "config.env: HTTP must be service:port, got '$HTTP'"
+  local item
+  for item in $PORTS; do
+    [[ $item =~ ^[0-9]+=[a-z0-9][a-z0-9_.-]*:[0-9]+$ ]] || fail config "config.env: bad PORTS entry '$item'"
+  done
+  [[ -n $COMPOSE_FILES ]] || fail config "config.env: COMPOSE_FILES is empty"
+  for item in $COMPOSE_FILES; do
+    [[ -f $dir/$item ]] || fail config "config.env: COMPOSE_FILES entry '$item' does not exist (paths are relative to $dir)"
+  done
+  for item in $DATA_VOLUMES; do
+    [[ $item =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]*$ && $item != ts-state ]] || fail config "config.env: bad DATA_VOLUMES entry '$item'"
+    [[ $item != auto && $item != none ]] || [[ $DATA_VOLUMES == "$item" ]] ||
+      fail config "config.env: DATA_VOLUMES=$item cannot be combined with volume names"
+  done
+  for item in $SECRETS; do
+    [[ $item =~ ^[A-Za-z_][A-Za-z0-9_]*$ && $item != TP_* ]] || fail config "config.env: bad SECRETS name '$item'"
+  done
+  [[ $HEALTH_PATH == /* ]] || fail config "config.env: HEALTH_PATH must start with /"
+  [[ $MAX_ENVS =~ ^[0-9]+$ && $MIN_FREE_MB =~ ^[0-9]+$ && $KEEP_BACKUPS =~ ^[0-9]+$ ]] ||
+    fail config "config.env: MAX_ENVS, MIN_FREE_MB and KEEP_BACKUPS must be numbers"
+}
+
+image_var() { printf 'TP_IMAGE_%s' "$(tr '[:lower:]-' '[:upper:]_' <<<"$1")"; }
+
+random_secret() { head -c 32 /dev/urandom | base64 | tr -d '/+=\n' | head -c 40; }
+
+host_setting() {
+  # shellcheck disable=SC1090
+  [[ -f $HOST_CONFIG ]] && (set -a && source "$HOST_CONFIG" && printf '%s' "${!1:-}")
+}
+
+# Secrets: generated once per project on the host, the same for every environment, so a copied database
+# and the services of the new environment agree on them. TS_OAUTH_SECRET comes from the environment (a
+# repository secret) or the machine-wide host configuration.
+load_secrets() {
+  local name
+  TS_OAUTH_SECRET=${TS_OAUTH_SECRET:-$(host_setting TS_OAUTH_SECRET || true)}
+  [[ -n $TS_OAUTH_SECRET ]] ||
+    fail ts_secret "no TS_OAUTH_SECRET: put it in $HOST_CONFIG or a repository secret (docs/host-setup.md)"
+  TS_TAGS=${TS_TAGS:-$(host_setting TS_TAGS || true)}
+  TS_TAGS=${TS_TAGS:-tag:preview}
+  mkdir -p "$ROOT"
+  (umask 077 && touch "$SECRETS_FILE")
+  for name in $SECRETS; do
+    grep -q "^$name=" "$SECRETS_FILE" || {
+      printf '%s=%s\n' "$name" "$(random_secret)" >>"$SECRETS_FILE"
+      log "generated $name"
+    }
+  done
+  chmod 600 "$SECRETS_FILE"
+  set -a
+  # shellcheck disable=SC1090
+  source "$SECRETS_FILE"
+  set +a
+}
+
+# ------------------------------------------------------------------ images
+
+pull_missing() {
+  local image
+  for image in $("$@" config --images); do
+    [[ $image == "$PROJECT"-* ]] && continue
+    docker image inspect "$image" >/dev/null 2>&1 && continue
+    log "pulling $image"
+    retry docker pull -q "$image" >/dev/null ||
+      fail registry "pulling $image failed (the host's connection to the registry, docs/troubleshooting.md)"
+  done
+}
+
+default_tag() { git -C "$SOURCE" rev-parse HEAD 2>/dev/null | cut -c1-12; }
+
+images_exist() {
+  local tag=$1 entry
+  for entry in $IMAGES; do
+    docker image inspect "$PROJECT-${entry%%=*}:$tag" >/dev/null 2>&1 || return 1
+  done
+}
+
+cmd_build() {
+  local tag=''
+  while (($#)); do
+    case $1 in
+      --tag) tag=$2 && shift 2 ;;
+      *) die "build: unknown argument $1" ;;
+    esac
+  done
+  load_config
+  tag=${tag:-$(default_tag)}
+  [[ -n $tag ]] || die "build: no --tag and $SOURCE is not a git checkout"
+  if images_exist "$tag"; then
+    log "images $tag already exist"
+    return
+  fi
+  local entry name file
+  for entry in $IMAGES; do
+    name=${entry%%=*} file=${entry#*=}
+    [[ $entry == *=* && -f $SOURCE/$file ]] || fail config "config.env: IMAGES entry '$entry': no such Dockerfile in $SOURCE"
+    log "building $PROJECT-$name:$tag from $file"
+    retry docker build --label "tailnet-preview.project=$PROJECT" -t "$PROJECT-$name:$tag" -f "$SOURCE/$file" "$SOURCE" >&2 ||
+      fail build "building image $name failed"
+  done
+}
+
+# ------------------------------------------------------------------ environments
+
+check_name() { [[ $1 == main || $1 =~ ^pr-[0-9]+$ ]] || die "environment must be main or pr-<number>, got '$1'"; }
+
+env_dir() { printf '%s/envs/%s' "$ROOT" "$1"; }
+
+# The URL comes from the sidecar's real node name after login (resolve_url), so the tailnet's domain is
+# never configured.
+app_url() { cat "$(env_dir "$1")/url" 2>/dev/null || echo '(unknown)'; }
+
+compose_env() {
+  local dir
+  dir=$(env_dir "$1")
+  shift
+  local files=() file
+  while IFS= read -r file; do files+=(-f "$file"); done <"$dir/compose-files"
+  docker compose --project-directory "$(cat "$dir/project-dir")" --env-file "$dir/compose.env" "${files[@]}" "$@"
+}
+
+# The configuration directory's path inside the repository (".tailnet-preview" if it lies outside).
+config_rel() {
+  local rel
+  rel=$(realpath -m --relative-to="$SOURCE" "$CONFIG")
+  [[ $rel != ..* && $rel != /* ]] || rel=.tailnet-preview
+  printf '%s' "$rel"
+}
+
+# The volumes whose data a PR environment copies from the baseline: DATA_VOLUMES, or every named volume.
+data_volumes() {
+  case $DATA_VOLUMES in
+    auto) compose_env "$1" config --volumes | grep -vx ts-state || true ;;
+    '' | none) ;;
+    *) tr -s ' ' '\n' <<<"$DATA_VOLUMES" ;;
+  esac
+}
+
+# Created successfully at least once. A half-created environment is recreated, not upgraded.
+env_exists() { [[ -f $(env_dir "$1")/initialized ]]; }
+
+pr_env_count() { find "$ROOT/envs" -mindepth 1 -maxdepth 1 -type d -name 'pr-*' 2>/dev/null | wc -l; }
+
+free_mb() { awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo; }
+
+has_task() { compose_env "$1" --profile tasks config --services 2>/dev/null | grep -qx "$2"; }
+
+# Services that stay running (default profile), except the sidecar.
+app_services() { compose_env "$1" config --services | grep -vx ts || true; }
+
+stop_services() {
+  local services
+  services=$(app_services "$1")
+  # shellcheck disable=SC2086
+  [[ -z $services ]] || compose_env "$1" stop $services >&2
+}
+
+start_services() {
+  local services
+  services=$(app_services "$1")
+  # shellcheck disable=SC2086
+  [[ -z $services ]] || compose_env "$1" start $services >&2
+}
+
+# The Docker volume behind a compose volume of an environment (found by compose's labels).
+volume_of() {
+  docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT-$1" \
+    --filter "label=com.docker.compose.volume=$2"
+}
+
+# Remove an environment's containers and volumes, keeping the Tailscale node (ts and its state).
+wipe_data() {
+  local name=$1 volume
+  if [[ -f $(env_dir "$name")/compose-files ]]; then
+    local services
+    services=$(compose_env "$name" --profile tasks config --services | grep -vx ts || true)
+    # shellcheck disable=SC2086
+    [[ -z $services ]] || compose_env "$name" --profile tasks rm -f -s $services >&2
+  fi
+  for volume in $(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT-$name"); do
+    [[ $(docker volume inspect -f '{{index .Labels "com.docker.compose.volume"}}' "$volume") == ts-state ]] && continue
+    docker volume rm "$volume" >/dev/null
+  done
+}
+
+serve_json() {
+  local tcp web entry port target
+  tcp="\"443\": { \"HTTPS\": true }"
+  web="\"\${TS_CERT_DOMAIN}:443\": { \"Handlers\": { \"/\": { \"Proxy\": \"http://$HTTP\" } } }"
+  for entry in $PORTS; do
+    port=${entry%%=*} target=${entry#*=}
+    tcp+=", \"$port\": { \"HTTPS\": true }"
+    web+=", \"\${TS_CERT_DOMAIN}:$port\": { \"Handlers\": { \"/\": { \"Proxy\": \"http://$target\" } } }"
+  done
+  printf '{\n  "TCP": { %s },\n  "Web": { %s }\n}\n' "$tcp" "$web"
+}
+
+# A copy of the repository's working tree (tracked and untracked files that git does not ignore) with the
+# configuration directory on top. Compose files run from it, so relative paths keep working after the
+# checkout is gone, and an environment can be restarted at any time.
+snapshot() {
+  local dir=$1 rel
+  rm -rf "$dir/src" && mkdir -p "$dir/src"
+  if git -C "$SOURCE" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$SOURCE" ls-files -z -c -o --exclude-standard |
+      (cd "$SOURCE" && tar --null --ignore-failed-read -T - -cf - 2>/dev/null) | tar -x -C "$dir/src"
+  else
+    tar -C "$SOURCE" --exclude=.git -cf - . | tar -x -C "$dir/src"
+  fi
+  rel=$(config_rel)
+  rm -rf "${dir:?}/src/$rel" && mkdir -p "$(dirname "$dir/src/$rel")"
+  cp -R "$CONFIG" "$dir/src/$rel"
+  printf '%s\n' "$dir/src/$rel" >"$dir/config-dir"
+}
+
+# The files compose merges for the environment: the sidecar overlay, COMPOSE_FILES in order, and an
+# isolation override that removes published ports and fixed container names, which would collide between
+# environments. Relative paths in all of them resolve against the first COMPOSE_FILES entry's directory.
+write_compose_files() {
+  local dir=$1 config file abs services service
+  config=$(cat "$dir/config-dir")
+  cp "$LIB/compose.overlay.yaml" "$dir/overlay.yaml"
+  rm -f "$dir/project-dir.new"
+  printf '%s\n' "$dir/overlay.yaml" >"$dir/compose-files"
+  for file in $COMPOSE_FILES; do
+    abs=$(realpath -m "$config/$file")
+    [[ $abs == "$dir/src/"* && -f $abs ]] || fail config "config.env: COMPOSE_FILES entry '$file' is not a file of the repository"
+    [[ -f $dir/project-dir.new ]] || dirname "$abs" >"$dir/project-dir.new"
+    printf '%s\n' "$abs" >>"$dir/compose-files"
+  done
+  mv "$dir/project-dir.new" "$dir/project-dir"
+  services=$(compose_env "$(basename "$dir")" --profile tasks config --services) ||
+    fail config "the compose files do not merge (run: tailnet-preview validate)"
+  {
+    echo "# Written by tailnet-preview: environments must not publish ports or share container names."
+    echo "services:"
+    for service in $services; do
+      printf '  %s:\n    ports: !reset []\n    container_name: !reset null\n' "$service"
+    done
+  } >"$dir/isolation.yaml"
+  printf '%s\n' "$dir/isolation.yaml" >>"$dir/compose-files"
+}
+
+# Write the interpolation variables and the compose file list. Called twice per deploy: before the
+# sidecar is up (URL may be unknown) and after (final URL); the snapshot is taken on the first call.
+write_env() {
+  local name=$1 tag=$2 dir ephemeral entry var url
+  dir=$(env_dir "$name")
+  mkdir -p "$dir/tailscale"
+  [[ ${3:-} != --snapshot ]] || snapshot "$dir"
+  serve_json >"$dir/tailscale/serve.json"
+  # The baseline's node is persistent (stable address); PR nodes are ephemeral and vanish when removed.
+  ephemeral=$([[ $name == main ]] && echo false || echo true)
+  url=$(cat "$dir/url" 2>/dev/null || true)
+  {
+    printf 'COMPOSE_PROJECT_NAME=%s\n' "$PROJECT-$name"
+    printf 'TP_PROJECT=%s\nTP_ENV=%s\nTP_URL=%s\nTP_HOSTNAME=%s\nTP_ENV_DIR=%s\nTP_TS_IMAGE=%s\n' \
+      "$PROJECT" "$name" "$url" "$PROJECT-$name" "$dir" "$TS_IMAGE"
+    printf 'TP_TS_AUTHKEY=%s?ephemeral=%s&preauthorized=true\nTP_TS_TAGS=%s\n' "$TS_OAUTH_SECRET" "$ephemeral" "$TS_TAGS"
+    for entry in $IMAGES; do
+      printf '%s=%s\n' "$(image_var "${entry%%=*}")" "$PROJECT-${entry%%=*}:$tag"
+    done
+    for var in $SECRETS; do
+      printf '%s=%s\n' "$var" "${!var}"
+    done
+  } >"$dir/compose.env.new"
+  chmod 600 "$dir/compose.env.new"
+  mv "$dir/compose.env.new" "$dir/compose.env"
+  write_compose_files "$dir"
+  printf '%s\n' "$tag" >"$dir/tag"
+}
+
+# Start the sidecar, wait until it is logged in, record its HTTPS address. In `tailscale status --json`,
+# Self's DNSName comes before the peers'.
+resolve_url() {
+  local name=$1 dir json dns i
+  dir=$(env_dir "$name")
+  pull_missing compose_env "$name"
+  compose_env "$name" up -d ts >&2
+  for ((i = 0; i < 60; i++)); do
+    json=$(compose_env "$name" exec -T ts tailscale status --json 2>/dev/null || true)
+    if grep -q '"BackendState": *"Running"' <<<"$json"; then
+      dns=$(grep -m1 -o '"DNSName": *"[^"]*"' <<<"$json" | sed -E 's/.*"([^"]*)"$/\1/; s/\.$//')
+      if [[ -n $dns ]]; then
+        printf 'https://%s\n' "$dns" >"$dir/url"
+        return
+      fi
+    fi
+    sleep 2
+  done
+  fail ts_login "$name: the Tailscale sidecar did not log in within two minutes (docker logs $PROJECT-$name-ts-1)"
+}
+
+prepare_env() {
+  local name=$1 tag=$2
+  write_env "$name" "$tag" --snapshot
+  resolve_url "$name"
+  write_env "$name" "$tag"
+}
+
+run_task() {
+  local name=$1 task=$2
+  has_task "$name" "$task" || return 0
+  log "$name: running $task"
+  compose_env "$name" --profile tasks run --rm "$task" >&2 || fail "$task" "$name: $task failed"
+}
+
+# The tailnet issues HTTPS certificates only if they are enabled; then CertDomains lists the node's name.
+https_enabled() {
+  compose_env "$1" exec -T ts tailscale status --json 2>/dev/null | tr -d ' \t\n' | grep -q '"CertDomains":\["'
+}
+
+# Request the health path through the same upstream the sidecar proxies to; new backends need a moment.
+wait_healthy() {
+  local name=$1 i svc
+  for ((i = 0; i < ${TP_HEALTH_TIMEOUT:-120} / 2; i++)); do
+    compose_env "$name" exec -T ts wget -q -O /dev/null "http://$HTTP$HEALTH_PATH" 2>/dev/null && return 0
+    sleep 2
+  done
+  for svc in $(app_services "$name"); do
+    log "== logs of $svc"
+    compose_env "$name" logs --no-color --tail 30 "$svc" >&2 || true
+  done
+  fail health "$name: http://$HTTP$HEALTH_PATH did not answer within ${TP_HEALTH_TIMEOUT:-120}s (logs above)"
+}
+
+# Copy the baseline's DATA_VOLUMES into a new environment whose containers and volumes exist but have not
+# started. The baseline's services stop meanwhile, so nothing writes to the volumes during the copy, and
+# start again whether or not it worked.
+copy_data() {
+  local name=$1 volumes=$2 volume from to rc=0
+  compose_env "$name" create >&2
+  log "$name: copying ${volumes//$'\n'/ } from the baseline (the baseline pauses meanwhile)"
+  stop_services main
+  for volume in $volumes; do
+    from=$(volume_of main "$volume") to=$(volume_of "$name" "$volume")
+    if [[ -z $from || -z $to ]]; then
+      log "volume $volume: baseline '${from:-missing}', $name '${to:-missing}'"
+      rc=1 && break
+    fi
+    docker run --rm --entrypoint sh -v "$from:/from:ro" -v "$to:/to" "$TS_IMAGE" \
+      -c 'find /to -mindepth 1 -delete && cp -a /from/. /to/' >&2 || { rc=1 && break; }
+  done
+  start_services main
+  ((rc == 0)) || fail fork "$name: copying the volume $volume from the baseline failed (is it in compose.yaml's volumes?)"
+}
+
+# Empty volumes -> migrate -> seed. Used for the baseline and for PRs without a baseline to copy.
+create_fresh() {
+  local name=$1 tag=$2
+  log "$name: creating with empty volumes"
+  wipe_data "$name"
+  prepare_env "$name" "$tag"
+  run_task "$name" migrate
+  run_task "$name" seed
+  compose_env "$name" up -d --remove-orphans >&2
+  echo fresh >"$(env_dir "$name")/mode"
+}
+
+create_forked() {
+  local name=$1 tag=$2 volumes
+  wipe_data "$name"
+  prepare_env "$name" "$tag"
+  volumes=$(data_volumes "$name")
+  if [[ -z $volumes ]]; then
+    log "$name: no data volumes to copy (DATA_VOLUMES), seeding instead"
+    run_task "$name" migrate
+    run_task "$name" seed
+    compose_env "$name" up -d --remove-orphans >&2
+    echo fresh >"$(env_dir "$name")/mode"
+    return
+  fi
+  copy_data "$name" "$volumes"
+  run_task "$name" migrate
+  compose_env "$name" up -d --remove-orphans >&2
+  echo forked >"$(env_dir "$name")/mode"
+}
+
+upgrade() {
+  local name=$1 tag=$2
+  log "$name: upgrading to $tag"
+  prepare_env "$name" "$tag"
+  run_task "$name" migrate
+  compose_env "$name" up -d --remove-orphans >&2
+  echo upgraded >"$(env_dir "$name")/mode"
+}
+
+parse_tag_args() {
+  TAG='' FRESH=''
+  while (($#)); do
+    case $1 in
+      --tag) TAG=$2 && shift 2 ;;
+      --fresh) FRESH=1 && shift ;;
+      *) die "unknown argument $1" ;;
+    esac
+  done
+  TAG=${TAG:-$(default_tag)}
+  [[ -n $TAG ]] || die "no --tag and $SOURCE is not a git checkout"
+}
+
+cmd_deploy() {
+  local name=$1
+  shift
+  check_name "$name"
+  parse_tag_args "$@"
+  load_config
+  load_secrets
+  images_exist "$TAG" || die "images for $TAG do not exist; run build first"
+  if env_exists "$name"; then
+    upgrade "$name" "$TAG"
+  elif [[ $name == main ]]; then
+    create_fresh main "$TAG"
+  else
+    [[ -n $FRESH ]] || env_exists main || {
+      log "the baseline does not exist"
+      exit 4
+    }
+    if (($(pr_env_count) >= MAX_ENVS)) && [[ ! -d $(env_dir "$name") ]]; then
+      log "limit reached: $MAX_ENVS PR environments"
+      exit 3
+    fi
+    if (($(free_mb) < MIN_FREE_MB)); then
+      log "limit reached: $(free_mb)MB available memory, less than $MIN_FREE_MB MB"
+      exit 3
+    fi
+    if [[ -n $FRESH ]]; then
+      create_fresh "$name" "$TAG"
+    else
+      create_forked "$name" "$TAG"
+    fi
+  fi
+  wait_healthy "$name"
+  touch "$(env_dir "$name")/initialized"
+  # The environment exists from here on (the next deploy upgrades it); only browsers cannot connect yet.
+  https_enabled "$name" ||
+    fail https "$name: the tailnet does not issue HTTPS certificates, browsers cannot open $(app_url "$name")"
+  log "$name: ready at $(app_url "$name")"
+  app_url "$name" >&3
+}
+
+# Log out first so the node leaves the tailnet at once and a recreated environment keeps its name.
+cmd_destroy() {
+  local name=$1 force=${2:-} dir volume
+  check_name "$name"
+  [[ $name != main || $force == --force ]] || die "destroying the baseline needs --force; use reset to start it over"
+  dir=$(env_dir "$name")
+  if [[ -f $dir/compose-files ]]; then
+    compose_env "$name" exec -T ts tailscale logout >/dev/null 2>&1 || true
+    compose_env "$name" --profile tasks down -v --remove-orphans >&2 || true
+  fi
+  # Volumes left behind by a half-created environment.
+  for volume in $(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT-$name"); do
+    docker volume rm "$volume" >/dev/null 2>&1 || true
+  done
+  rm -rf "$dir"
+  log "$name: destroyed"
+}
+
+cmd_reset() {
+  local name=$1
+  shift
+  check_name "$name"
+  if [[ $name == main ]]; then
+    # The baseline keeps its Tailscale node (and so its address); its data starts over.
+    if env_exists main; then cmd_backup; fi
+    rm -f "$(env_dir main)/initialized"
+  else
+    cmd_destroy "$name"
+  fi
+  cmd_deploy "$name" "$@"
+}
+
+cmd_backup() {
+  local dir volume src stamp
+  dir=$(env_dir main)
+  env_exists main || {
+    log "the baseline does not exist, nothing to back up"
+    return
+  }
+  # The baseline's own copy of the configuration describes its volumes.
+  load_config "$(cat "$dir/config-dir")"
+  local volumes
+  volumes=$(data_volumes main)
+  [[ -n $volumes ]] || {
+    log "no data volumes, nothing to back up"
+    return
+  }
+  stamp=$ROOT/backups/main-$(date +%Y%m%d-%H%M%S)
+  mkdir -p "$stamp"
+  log "backing up ${volumes//$'\n'/ } (the baseline pauses meanwhile)"
+  stop_services main
+  local rc=0
+  for volume in $volumes; do
+    src=$(volume_of main "$volume")
+    [[ -n $src ]] || continue
+    docker run --rm --entrypoint tar -v "$src:/data:ro" "$TS_IMAGE" czf - -C /data . >"$stamp/$volume.tar.gz" || rc=1
+  done
+  start_services main
+  ((rc == 0)) || die "backup failed"
+  log "backed up to $stamp"
+  find "$ROOT/backups" -mindepth 1 -maxdepth 1 -name 'main-*' -type d | sort -r | tail -n +$((KEEP_BACKUPS + 1)) |
+    xargs -r rm -rf
+}
+
+cmd_prune() {
+  local open=" $* " dir name used image
+  for dir in "$ROOT"/envs/pr-*; do
+    [[ -d $dir ]] || continue
+    name=$(basename "$dir")
+    [[ $open == *" ${name#pr-} "* ]] || cmd_destroy "$name"
+  done
+  used=$(cat "$ROOT"/envs/*/tag 2>/dev/null | sort -u || true)
+  for image in $(docker images --filter "label=tailnet-preview.project=$PROJECT" --format '{{.Repository}}:{{.Tag}}'); do
+    grep -qx "${image##*:}" <<<"$used" || docker rmi "$image" >/dev/null 2>&1 || true
+  done
+  docker image prune -f >/dev/null
+  docker builder prune -f --filter until=168h >/dev/null 2>&1 || true
+}
+
+redact() { sed -E 's/(tskey-[a-z]+-)[A-Za-z0-9_-]+/\1***/g'; }
+
+# Read-only; every check continues on failure.
+cmd_doctor() {
+  local name=$1 dir entry svc
+  check_name "$name"
+  dir=$(env_dir "$name")
+  [[ -f $dir/compose-files ]] || {
+    echo "$name does not exist on this host"
+    return
+  }
+  # The copied configuration describes this environment, even if the checkout has changed since.
+  load_config "$(cat "$dir/config-dir")"
+  echo "== url: $(app_url "$name") (tag $(cat "$dir/tag" 2>/dev/null), $(cat "$dir/mode" 2>/dev/null || echo 'not deployed'))"
+  echo "== containers"
+  compose_env "$name" ps -a || true
+  echo "== tailscale node"
+  compose_env "$name" exec -T ts tailscale status --self --peers=false 2>&1 | redact || true
+  echo "== https certificates"
+  if https_enabled "$name"; then
+    echo "enabled for the tailnet"
+  else
+    echo "NOT enabled for the tailnet (docs/troubleshooting.md)"
+  fi
+  echo "== tailscale serve"
+  compose_env "$name" exec -T ts tailscale serve status 2>&1 || true
+  echo "== upstreams, requested from the sidecar"
+  local targets=("$HTTP$HEALTH_PATH")
+  for entry in $PORTS; do targets+=("${entry#*=}/"); done
+  for entry in "${targets[@]}"; do
+    printf 'http://%s: ' "$entry"
+    if compose_env "$name" exec -T ts wget -q -O /dev/null "http://$entry" 2>&1; then echo ok; fi
+  done
+  echo "== data volumes"
+  for entry in $(data_volumes "$name"); do echo "$entry: $(volume_of "$name" "$entry" || true)"; done
+  for svc in ts $(app_services "$name"); do
+    echo "== logs of $svc"
+    compose_env "$name" logs --no-color --tail 30 "$svc" 2>&1 | redact || true
+  done
+}
+
+# Static checks of the configuration in TP_CONFIG against the current checkout, using a throwaway
+# environment: nothing is built, started or written outside a temporary directory. Needs the docker CLI
+# (for `docker compose config`), not a running daemon.
+cmd_validate() {
+  local errors=0 warnings=0 tmp env file entry svc vol task image volumes services running files=()
+  err() {
+    echo "ERROR  $*"
+    errors=$((errors + 1))
+  }
+  warn() {
+    echo "WARN   $*"
+    warnings=$((warnings + 1))
+  }
+  info() { echo "ok     $*"; }
+  has() { grep -qx "$1" <<<"$2"; }
+  uses() { grep -q "$1" "${files[@]}"; }
+
+  load_config
+  info "config.env parsed ($CONFIG/config.env)"
+  for entry in $IMAGES; do
+    if [[ $entry == *=* && -f $SOURCE/${entry#*=} ]]; then
+      info "image ${entry%%=*} builds from ${entry#*=}"
+    else
+      err "IMAGES entry '$entry': no Dockerfile at $SOURCE/${entry#*=}"
+    fi
+  done
+
+  # A throwaway environment with placeholder secrets.
+  tmp=$(mktemp -d)
+  # shellcheck disable=SC2064
+  trap "rm -rf '$tmp'" EXIT
+  ROOT=$tmp TS_OAUTH_SECRET=tskey-validate TS_TAGS=tag:preview env=$tmp/envs/pr-0
+  for entry in $SECRETS; do printf -v "$entry" 'validate-%s' "$entry"; done
+  mkdir -p "$env"
+  printf 'https://%s-pr-0.example.ts.net\n' "$PROJECT" >"$env/url"
+  if ! (write_env pr-0 validate --snapshot) >"$tmp/out" 2>&1; then
+    err "the compose files do not merge:"
+    sed 's/^/         /' "$tmp/out"
+    echo "$errors error(s), $warnings warning(s)"
+    exit 1
+  fi
+  if ! compose_env pr-0 --profile tasks config -q 2>"$tmp/out"; then
+    err "docker compose rejects the merged configuration:"
+    sed 's/^/         /' "$tmp/out"
+  fi
+  # The project's own files: between the sidecar overlay (first) and the isolation override (last).
+  mapfile -t files < <(sed '1d;$d' "$env/compose-files")
+  info "compose files, merged in order: ${files[*]#"$env"/src/}"
+  info "relative paths in them resolve against ./$(realpath -m --relative-to="$env/src" "$(cat "$env/project-dir")")"
+  services=$(compose_env pr-0 --profile tasks config --services 2>/dev/null || true)
+  running=$(compose_env pr-0 config --services 2>/dev/null || true)
+  for file in "${files[@]}"; do
+    if grep -Eq '^  ts:' "$file"; then err "${file#"$env"/src/} defines a service named ts, reserved for the Tailscale sidecar"; fi
+  done
+
+  svc=${HTTP%%:*}
+  if has "$svc" "$running"; then
+    info "HTTPS port 443 proxies to $HTTP; ready when $HEALTH_PATH answers"
+  else
+    err "HTTP=$HTTP: no running service '$svc' (services: ${running//$'\n'/ })"
+  fi
+  for entry in $PORTS; do
+    svc=${entry#*=} svc=${svc%%:*}
+    if has "$svc" "$running"; then info "HTTPS port ${entry%%=*} proxies to ${entry#*=}"; else err "PORTS entry '$entry': no running service '$svc'"; fi
+  done
+
+  volumes=$(compose_env pr-0 config --volumes 2>/dev/null | grep -vx ts-state || true)
+  case $DATA_VOLUMES in
+    "" | none) info "DATA_VOLUMES=none: every PR environment starts with empty volumes and is seeded" ;;
+    auto)
+      if [[ -n $volumes ]]; then
+        info "PR environments copy every named volume from the baseline: ${volumes//$'\n'/ }"
+      else
+        warn "no named volumes: PR environments cannot copy the baseline's data and are seeded instead"
+      fi
+      ;;
+    *)
+      for vol in $DATA_VOLUMES; do
+        if has "$vol" "$volumes"; then
+          info "PR environments copy volume $vol from the baseline"
+        else
+          err "DATA_VOLUMES entry '$vol' is not a volume of the compose files (volumes: ${volumes//$'\n'/ })"
+        fi
+      done
+      ;;
+  esac
+  # A fixed or external volume would be shared by every environment.
+  for vol in $volumes; do
+    entry=$(compose_env pr-0 config 2>/dev/null | awk -v v="$vol" '
+      /^volumes:/ { top = 1; next } /^[^ ]/ { top = 0 }
+      top && $0 ~ "^  " v ":" { inside = 1; next } top && /^  [^ ]/ { inside = 0 }
+      inside && /^    external: true/ { print "external"; exit } inside && /^    name:/ { name = $2 } END { print name }' | head -1)
+    case $entry in
+      '' | "$PROJECT-pr-0_$vol") ;;
+      external) warn "volume $vol is external: every environment shares it" ;;
+      *) err "volume $vol has a fixed name ($entry): every environment would share it; remove its name:" ;;
+    esac
+  done
+
+  for task in migrate seed; do
+    if ! has "$task" "$services"; then
+      case $task in
+        migrate) info "no migrate task: the application migrates on start, or needs no migrations" ;;
+        seed) info "no seed task: a new baseline starts with empty data" ;;
+      esac
+    elif has "$task" "$running"; then
+      err "service $task must be in the tasks profile (profiles: [tasks]); otherwise it keeps running"
+    else
+      info "task $task"
+    fi
+  done
+
+  uses 'TP_URL' || warn "no compose file uses \${TP_URL}: the application does not learn its own address (logins, redirects and cookies usually need it)"
+  for entry in $IMAGES; do
+    uses "$(image_var "${entry%%=*}")" || warn "image ${entry%%=*} is built, but no compose file uses \${$(image_var "${entry%%=*}")}"
+  done
+  for entry in $SECRETS; do
+    uses "\${$entry" || warn "secret $entry is generated, but no compose file uses \${$entry}"
+  done
+  for image in $(compose_env pr-0 --profile tasks config --images 2>/dev/null | sort -u); do
+    [[ $image == "$PROJECT"-* || $image == "$TS_IMAGE" ]] || info "pulled from a registry: $image"
+  done
+  echo "$errors error(s), $warnings warning(s)"
+  ((errors == 0)) || exit 1
+}
+
+# A commented starting point in TP_CONFIG; fills in what can be seen in the repository.
+cmd_init() {
+  local file compose='' dockerfiles images=''
+  [[ ! -e $CONFIG ]] || die "$CONFIG already exists"
+  for file in compose.yaml compose.yml docker-compose.yaml docker-compose.yml; do
+    if [[ -f $SOURCE/$file ]]; then compose=$file && break; fi
+  done
+  dockerfiles=$(cd "$SOURCE" && find . -name node_modules -prune -o -name .git -prune -o \
+    -type f \( -name Dockerfile -o -name '*.Dockerfile' \) -print 2>/dev/null | sed 's|^\./||' | sort | head -10)
+  for file in $dockerfiles; do
+    images+="$(basename "$(dirname "$file")" | sed 's/^\.$/app/')=$file "
+  done
+  mkdir -p "$CONFIG"
+  sed -e "s|@IMAGES@|${images% }|" \
+    -e "s|@COMPOSE_FILES@|${compose:+../$compose }compose.yaml|" "$LIB/templates/config.env" >"$CONFIG/config.env"
+  if [[ -n $compose ]]; then
+    cp "$LIB/templates/compose.override.yaml" "$CONFIG/compose.yaml"
+  else
+    cp "$LIB/templates/compose.yaml" "$CONFIG/compose.yaml"
+  fi
+  log "wrote $CONFIG/config.env and $CONFIG/compose.yaml${compose:+ (on top of ./$compose)}"
+  log "next: fill in the TODOs (docs/configuring.md), then run: tailnet-preview validate"
+}
+
+cmd_info() {
+  local dir
+  dir=$(env_dir "$1")
+  [[ -d $dir ]] || exit 2
+  printf 'url=%s\ntag=%s\nmode=%s\n' "$(cat "$dir/url" 2>/dev/null)" "$(cat "$dir/tag" 2>/dev/null)" "$(cat "$dir/mode" 2>/dev/null)"
+}
+
+cmd_list() {
+  local dir
+  for dir in "$ROOT"/envs/*; do
+    [[ -d $dir ]] || continue
+    printf '%-10s %-13s %-9s %s\n' "$(basename "$dir")" "$(cat "$dir/tag" 2>/dev/null)" \
+      "$(cat "$dir/mode" 2>/dev/null)" "$(cat "$dir/url" 2>/dev/null)"
+  done
+}
+
+cmd_host_check() {
+  local ok=1
+  check() {
+    if eval "$2" >/dev/null 2>&1; then echo "ok    $1"; else
+      echo "FAIL  $1${3:+ – $3}"
+      ok=0
+    fi
+  }
+  check "docker daemon reachable" "docker info" "install Docker and add this user to the docker group"
+  check "docker compose v2" "docker compose version"
+  check "flock" "command -v flock" "install util-linux"
+  check "git" "command -v git"
+  check "TS_OAUTH_SECRET" "[[ -n \${TS_OAUTH_SECRET:-} ]] || grep -q '^TS_OAUTH_SECRET=.' '$HOST_CONFIG'" \
+    "write it to $HOST_CONFIG (docs/host-setup.md)"
+  check "host configuration not readable by others" "[[ ! -f '$HOST_CONFIG' ]] || [[ \$(stat -c %a '$HOST_CONFIG') == 600 ]]" \
+    "chmod 600 $HOST_CONFIG"
+  echo "info  available memory: $(free_mb) MB"
+  echo "info  free disk in $HOME: $(df -Pm "$HOME" | awk 'NR == 2 { print $4 }') MB"
+  ((ok)) || exit 1
+}
+
+# State-changing commands of a project run one at a time: a fork pauses the baseline and must not
+# interleave with the baseline's own upgrade.
+lock() {
+  mkdir -p "$ROOT"
+  exec 9>"$ROOT/.lock"
+  flock -w 1800 9 || die "timed out waiting for another deploy of $PROJECT"
+}
+
+main() {
+  local cmd=${1:-}
+  shift || true
+  case $cmd in
+    deploy | reset | destroy | backup | prune) lock ;;
+  esac
+  case $cmd in
+    build) cmd_build "$@" ;;
+    has)
+      check_name "${1:-}"
+      env_exists "$1" || exit 2
+      ;;
+    # stdout carries only the URL; everything else goes to stderr.
+    deploy) cmd_deploy "$@" 3>&1 1>&2 ;;
+    reset) cmd_reset "$@" 3>&1 1>&2 ;;
+    destroy) cmd_destroy "$@" ;;
+    stop | start)
+      check_name "${1:-}"
+      compose_env "$1" "$cmd"
+      ;;
+    url)
+      check_name "${1:-}"
+      app_url "$1"
+      ;;
+    info)
+      check_name "${1:-}"
+      cmd_info "$1"
+      ;;
+    list) cmd_list ;;
+    backup) cmd_backup ;;
+    prune) cmd_prune "$@" ;;
+    doctor) cmd_doctor "$@" ;;
+    validate) cmd_validate ;;
+    init) cmd_init ;;
+    compose)
+      check_name "${1:-}"
+      local name=$1
+      shift
+      compose_env "$name" "$@"
+      ;;
+    host-check) cmd_host_check ;;
+    version) echo "$VERSION" ;;
+    -h | --help | help) sed -n '2,26p' "$0" | sed -E 's/^# ?//' ;;
+    *)
+      sed -n '2,26p' "$0" | sed -E 's/^# ?//' >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"
