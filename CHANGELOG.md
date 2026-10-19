@@ -4,6 +4,18 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+## 0.2.4 - 2026-10-19
+
+### Changed
+
+- The background certificate retries continue hourly for a day after the 5, 25 and 70 minute attempts.
+
+### Fixed
+
+- A name that Let's Encrypt rate limits (five failed validations within an hour) no longer gets new requests
+  while the limit lasts: the deploy reads the time from the sidecar's log and does not request, and the
+  retry loop waits until it has passed. Before, every deploy and retry extended the limit.
+
 ## 0.2.3 - 2026-10-19
 
 ### Fixed

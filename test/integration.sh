@@ -7,7 +7,7 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d)
 export TP_HOME=$WORK/home TP_PROJECT=tp-itest TP_SOURCE=$REPO TP_CONFIG=$REPO/example/.tailnet-preview
 export TS_OAUTH_SECRET=tskey-client-fake TP_TS_IMAGE=tp-fake-tailscale:test TP_FAILURE_FILE=$WORK/failure
-export TP_NOTICE_FILE=$WORK/notice TP_CERT_RETRY_DELAYS='2 2 2'
+export TP_NOTICE_FILE=$WORK/notice TP_CERT_RETRY_DELAYS='2 2 2' TP_CERT_RATE_LIMIT_MARGIN=1
 export TP_RETRY_DELAY=1 TP_HOST_CONFIG=$WORK/no-host-config
 TP=$REPO/bin/tailnet-preview
 TAG=itest$(date +%s)
@@ -206,6 +206,24 @@ run deploy pr-2 --tag "$TAG"
 expect_rc 0 "deploy while an earlier certificate request runs"
 [[ -z $("$TP" compose pr-2 exec -T ts pgrep -f 'tailscale [c]ert old-request') ]] || fatal "the earlier certificate request still runs"
 ok "a new deploy stops the earlier certificate request"
+
+# Rate limited: a deploy does not request while the limit lasts (it would only extend it); the background
+# loop waits it out, then gets the certificate.
+"$TP" compose pr-2 exec -T ts sh -c ': >/var/lib/tailscale/cert-requests; : >/var/lib/tailscale/tp-cert-retry.log; echo 20 >/var/lib/tailscale/cert-ratelimited'
+rm -f "$TP_NOTICE_FILE"
+run deploy pr-2 --tag "$TAG"
+expect_rc 0 "deploy while Let's Encrypt rate limits the name"
+grep -q rateLimited "$TP_NOTICE_FILE" || fatal "notice cert names the rate limit: $(cat "$TP_NOTICE_FILE")"
+rm -f "$TP_NOTICE_FILE"
+run deploy pr-2 --tag "$TAG"
+expect_rc 0 "deploy again during the rate limit"
+grep -q 'refuses new requests for this name until' "$TP_NOTICE_FILE" || fatal "notice cert says until when: $(cat "$TP_NOTICE_FILE")"
+[[ $(cert_requests) == 1 ]] || fatal "a deploy requested a certificate during the rate limit, got $(cert_requests) requests"
+ok "no certificate request while the name is rate limited"
+"$TP" compose pr-2 exec -T ts rm /var/lib/tailscale/cert-ratelimited
+for _ in $(seq 1 40); do grep -q issued <<<"$(retry_log)" && break; sleep 1; done
+grep -q issued <<<"$(retry_log)" || fatal "the background loop gets the certificate after the rate limit: $(retry_log)"
+ok "the background loop waits out the rate limit, then gets the certificate"
 
 limited=$(variant limited) && echo 'MAX_ENVS=2' >>"$limited/config.env"
 TP_CONFIG=$limited run deploy pr-3 --tag "$TAG"

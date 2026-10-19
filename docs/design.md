@@ -218,7 +218,12 @@ reached public DNS yet (`NXDOMAIN`, or `Incorrect TXT record` when only older va
 a timing problem between the two services, not the PR's, so the deploy succeeds with the notice `cert`,
 which carries Let's Encrypt's reason (the sidecar fetches it from the order's public authorization). A
 loop inside the sidecar, which outlives the deploy job, requests the certificate again after 5, 25 and 70
-minutes, within Let's Encrypt's five failed validations per name and hour; `doctor` shows its progress.
+minutes, then hourly for a day, within Let's Encrypt's five failed validations per name and hour; `doctor`
+shows its progress. Once a name has failed five times, Let's Encrypt refuses it until a time it gives
+("retry after ... UTC"), and every request meanwhile (a deploy, a retry, a browser visit) only adds to the
+failures. The engine reads that time from the sidecar's log: a deploy does not request then, and the loop
+first waits until it has passed. Tailscale itself can fail before Let's Encrypt is asked, when setting the
+validation record times out (`SetDNS ... context deadline exceeded`); the loop treats it like any failure.
 Per-node certificates remain the weak point of this design.
 
 Pulls from the image registry are retried, one image at a time, because flaky links to Docker Hub reset
@@ -226,7 +231,7 @@ connections and a parallel pull aborts every image when one connection drops.
 
 ## 8. The action
 
-`uses: riverscn/tailnet-preview@v0.2.3` with `command`:
+`uses: riverscn/tailnet-preview@v0.2.4` with `command`:
 
 | `command` | Typical trigger                                                              | Does                                                                                                                          |
 | --------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -242,7 +247,7 @@ rebuild a PR environment, run `destroy pr-<n>` and re-run the PR's deploy job.
 The diagnostics, the PR comment and the job result run after a failed deploy, but not after a cancelled
 one: a newer push that cancels the job updates the comment itself.
 
-The action locates its own scripts through `github.action_path`, so a workflow pinned to `@v0.2.3` runs
+The action locates its own scripts through `github.action_path`, so a workflow pinned to `@v0.2.4` runs
 exactly that version of the engine.
 
 ## 9. Versioning
@@ -252,7 +257,7 @@ inputs. Releases are tagged `vX.Y.Z` by the Release workflow (`.github/workflows
 notes of that version in `CHANGELOG.md`.
 
 - **0.x** (now): the interface is still settling as the first projects adopt it. A minor version may break
-  it, so projects pin the full version (`@v0.2.3`). There is no moving `v0` tag, and releases are marked as
+  it, so projects pin the full version (`@v0.2.4`). There is no moving `v0` tag, and releases are marked as
   pre-releases.
 - **From 1.0.0**: breaking changes require a new major version, and the moving tag `vX` points at the latest
   release of major version X, so projects can use `@v1`.
