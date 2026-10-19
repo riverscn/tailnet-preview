@@ -197,6 +197,16 @@ grep -q 'no answer within 3s' "$TP_NOTICE_FILE" || fatal "notice cert says the r
 ok "a hanging certificate request is cut off and left to the background loop"
 "$TP" compose pr-2 exec -T ts rm /var/lib/tailscale/cert-slow
 
+# A new deploy supersedes the previous one's certificate request.
+"$TP" compose pr-2 exec -T ts touch /var/lib/tailscale/cert-slow
+"$TP" compose pr-2 exec -d ts tailscale cert old-request
+sleep 1
+"$TP" compose pr-2 exec -T ts rm /var/lib/tailscale/cert-slow
+run deploy pr-2 --tag "$TAG"
+expect_rc 0 "deploy while an earlier certificate request runs"
+[[ -z $("$TP" compose pr-2 exec -T ts pgrep -f 'tailscale [c]ert old-request') ]] || fatal "the earlier certificate request still runs"
+ok "a new deploy stops the earlier certificate request"
+
 limited=$(variant limited) && echo 'MAX_ENVS=2' >>"$limited/config.env"
 TP_CONFIG=$limited run deploy pr-3 --tag "$TAG"
 expect_rc 3 "limit of PR environments exits 3"

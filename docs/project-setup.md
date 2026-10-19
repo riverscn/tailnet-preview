@@ -77,10 +77,14 @@ jobs:
       vars.PREVIEW_ENABLED == 'true' && (github.event_name == 'push' ||
       (github.event_name == 'pull_request' && github.event.action != 'closed' &&
        github.event.pull_request.head.repo.full_name == github.repository))
+    # A newer push to the same pull request supersedes this deploy; pushes to the default branch always finish.
+    concurrency:
+      group: preview-deploy-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v4
-      - uses: riverscn/tailnet-preview@v0.2.1
+      - uses: riverscn/tailnet-preview@v0.2.2
         with:
           command: deploy
         env:
@@ -95,7 +99,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.repository.default_branch }}
-      - uses: riverscn/tailnet-preview@v0.2.1
+      - uses: riverscn/tailnet-preview@v0.2.2
         with:
           command: destroy
 
@@ -104,7 +108,7 @@ jobs:
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v4
-      - uses: riverscn/tailnet-preview@v0.2.1
+      - uses: riverscn/tailnet-preview@v0.2.2
         with:
           command: nightly
         env:
@@ -115,7 +119,7 @@ jobs:
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v4
-      - uses: riverscn/tailnet-preview@v0.2.1
+      - uses: riverscn/tailnet-preview@v0.2.2
         with:
           command: run
           args: ${{ inputs.args }}

@@ -14,6 +14,7 @@ test('ready lists the URL, extra ports, the mode and the project text', () => {
     extra: 'Demo accounts: alice@example.com\n',
   })
   assert.match(body, /\| Application \| https:\/\/p-pr-1\.t\.ts\.net \|/)
+  assert.match(body, /\| Service \| Address \|\n\|---\|---\|/)
   assert.match(body, /\| Port 8025 \(mailpit:8025\) \| https:\/\/p-pr-1\.t\.ts\.net:8025 \|/)
   assert.match(body, /copied from the baseline/)
   assert.match(body, /Demo accounts: alice@example\.com/)

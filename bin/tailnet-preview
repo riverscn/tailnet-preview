@@ -434,9 +434,11 @@ issue_cert() {
   local name=$1 domain out order reason rc=0 limit=${TP_CERT_TIMEOUT:-60}
   domain=$(app_url "$name")
   domain=${domain#https://}
-  # A request still running from the previous deploy's background loop would make this one wait for it.
+  # A new deploy supersedes the previous one: stop its background loop and any certificate request still
+  # running, which would make this one wait for it. ([c] keeps pkill from matching this shell's command line.)
   # shellcheck disable=SC2016 # expanded by the container's shell
-  compose_env "$name" exec -T ts sh -c 'pid=/tmp/tp-cert-retry.pid; [ -f $pid ] && kill "$(cat $pid)"; rm -f $pid' \
+  compose_env "$name" exec -T ts sh -c \
+    'pid=/tmp/tp-cert-retry.pid; [ -f $pid ] && kill "$(cat $pid)"; rm -f $pid; pkill -f "tailscale [c]ert"' \
     >/dev/null 2>&1 || true
   # Bounded: when Let's Encrypt or Tailscale is slow, the background loop takes over instead of the deploy.
   # shellcheck disable=SC2016 # expanded by the container's shell
