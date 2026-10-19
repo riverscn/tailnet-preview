@@ -606,7 +606,7 @@ acme_reason() {
 load_ingress_settings() {
   local var
   for var in TP_INGRESS TP_INGRESS_DOMAIN TP_INGRESS_DNS_PROVIDER TP_INGRESS_DNS_ENV TP_INGRESS_ACME_EMAIL \
-    TP_INGRESS_ACME_CA TP_INGRESS_HOSTNAME; do
+    TP_INGRESS_ACME_CA TP_INGRESS_DNS_RESOLVERS TP_INGRESS_HOSTNAME; do
     [[ -n ${!var:-} ]] || printf -v "$var" '%s' "$(host_setting "$var" || true)"
   done
   INGRESS=${TP_INGRESS:-sidecar}
@@ -695,8 +695,11 @@ ensure_ingress() {
     if [[ -n ${TP_INGRESS_DNS_PROVIDER:-} ]]; then
       printf 'certificatesResolvers:\n  le:\n    acme:\n      email: "%s"\n      storage: /data/acme.json\n' "$TP_INGRESS_ACME_EMAIL"
       [[ -z ${TP_INGRESS_ACME_CA:-} ]] || printf '      caServer: "%s"\n' "$TP_INGRESS_ACME_CA"
-      # Let's Encrypt validates only once every authoritative name server has the record.
-      printf '      dnsChallenge:\n        provider: %s\n        propagation:\n          requireAllRNS: true\n' "$TP_INGRESS_DNS_PROVIDER"
+      # Before Let's Encrypt is asked, lego waits until the record is visible to these resolvers and to every
+      # authoritative name server (its default). Public resolvers, not the host's: a local one may still cache
+      # the name as missing.
+      printf '      dnsChallenge:\n        provider: %s\n        resolvers:\n' "$TP_INGRESS_DNS_PROVIDER"
+      for var in ${TP_INGRESS_DNS_RESOLVERS:-1.1.1.1:53 8.8.8.8:53}; do printf '          - "%s"\n' "$var"; done
     fi
     printf 'log:\n  level: INFO\n'
   } | write_if_changed "$INGRESS_DIR/traefik/traefik.yml" && restart=1

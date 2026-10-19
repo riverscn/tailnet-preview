@@ -330,9 +330,10 @@ browser ──https://myapp-pr-42.preview.example.com──▶ ingress: Tailscal
 - **Traefik** listens on the ingress's **tailnet address only**: environments are connected to the ingress
   but cannot use it to reach each other. Entry points: 443, plus every port in a project's `PORTS` (a new
   port restarts Traefik once). Routes come from one file per environment in `routes/`, which Traefik
-  watches. The certificate comes from Let's Encrypt by DNS-01 through the DNS provider's API, with
-  `requireAllRNS`: Let's Encrypt is asked to validate only once every authoritative name server has the
-  record, the race that per-node certificates lose.
+  watches. The certificate comes from Let's Encrypt by DNS-01 through the DNS provider's API. Before
+  Let's Encrypt is asked, lego waits until every authoritative name server and public resolvers
+  (`TP_INGRESS_DNS_RESOLVERS`, default 1.1.1.1 and 8.8.8.8) have the record: the race that per-node
+  certificates lose. Not the host's resolver, which may still cache the name as missing.
 - **CoreDNS** answers every name under the domain with the ingress's tailnet address, on that address
   only. The tailnet's split DNS sends the domain to it, so names resolve inside the tailnet, never through
   the local network's resolver. Public DNS has no record: resolvers and routers with DNS rebinding
@@ -384,15 +385,16 @@ Costs:
 
 Host settings, in `~/.config/tailnet-preview/env` (or the environment):
 
-| Setting                   | Meaning                                                                                                                                                        |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TP_INGRESS`              | `sidecar` (default) or `shared`                                                                                                                                |
-| `TP_INGRESS_DOMAIN`       | e.g. `preview.example.com`; environments are `<project>-<env>.<domain>`                                                                                        |
-| `TP_INGRESS_DNS_PROVIDER` | The DNS provider's name in Traefik/lego, e.g. `cloudflare`, `alidns`, `tencentcloud`. Without it Traefik serves a self-signed certificate (the tests use that) |
-| `TP_INGRESS_DNS_ENV`      | Names of the variables holding the provider's credentials, e.g. `CF_DNS_API_TOKEN`; their values are set in the same file                                      |
-| `TP_INGRESS_ACME_EMAIL`   | Let's Encrypt's contact address; required with a provider                                                                                                      |
-| `TP_INGRESS_ACME_CA`      | Optional ACME directory, e.g. Let's Encrypt's staging                                                                                                          |
-| `TP_INGRESS_HOSTNAME`     | The ingress's Tailscale name; default `tailnet-preview-<host>`                                                                                                 |
+| Setting                    | Meaning                                                                                                                                                        |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TP_INGRESS`               | `sidecar` (default) or `shared`                                                                                                                                |
+| `TP_INGRESS_DOMAIN`        | e.g. `preview.example.com`; environments are `<project>-<env>.<domain>`                                                                                        |
+| `TP_INGRESS_DNS_PROVIDER`  | The DNS provider's name in Traefik/lego, e.g. `cloudflare`, `alidns`, `tencentcloud`. Without it Traefik serves a self-signed certificate (the tests use that) |
+| `TP_INGRESS_DNS_ENV`       | Names of the variables holding the provider's credentials, e.g. `CF_DNS_API_TOKEN`; their values are set in the same file                                      |
+| `TP_INGRESS_ACME_EMAIL`    | Let's Encrypt's contact address; required with a provider                                                                                                      |
+| `TP_INGRESS_DNS_RESOLVERS` | Resolvers that must see the validation record first; default `1.1.1.1:53 8.8.8.8:53`                                                                           |
+| `TP_INGRESS_ACME_CA`       | Optional ACME directory, e.g. Let's Encrypt's staging                                                                                                          |
+| `TP_INGRESS_HOSTNAME`      | The ingress's Tailscale name; default `tailnet-preview-<host>`                                                                                                 |
 
 Switching a host: prepare the tailnet (split DNS, policy for port 53) and the settings
 ([host-setup.md](host-setup.md)), then redeploy each environment. A redeploy in shared mode logs the
