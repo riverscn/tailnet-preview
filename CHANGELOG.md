@@ -4,6 +4,21 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+### Added
+
+- The action refuses to deploy a pull request from a fork, also when the workflow's condition is missing.
+- The notice `hostname`: when the tailnet already has a device with the environment's name and Tailscale
+  adds a suffix (`myapp-pr-42-1`), the PR comment and `doctor` say so and how to get the name back.
+- `docs/security.md` explains why a public repository must not let fork pull requests run on the
+  self-hosted runner, and the settings that prevent it.
+
+### Changed
+
+- Several notices per deploy: `TP_NOTICE_FILE` holds a line per notice, and the comment shows each.
+- `actions/checkout@v7`, `actions/github-script@v9` and `actions/setup-node@v7` (Node.js 24) in the action,
+  the documented workflows and this repository's own; Node.js 20 actions are deprecated on GitHub.
+- README: the status says what 0.x means.
+
 ## 0.2.5 - 2026-10-19
 
 ### Fixed

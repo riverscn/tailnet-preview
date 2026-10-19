@@ -42,12 +42,13 @@ fail() {
   die "$*"
 }
 
-# Something the PR comment should mention although the deploy succeeded: "<code>\t<detail>" (section 7).
+# Something the PR comment should mention although the deploy succeeded: a line "<code>\t<detail>" per notice
+# (section 7).
 NOTICE_FILE=${TP_NOTICE_FILE:-}
 notice() {
   local code=$1
   shift
-  if [[ -n $NOTICE_FILE ]]; then printf '%s\t%s\n' "$code" "$*" >"$NOTICE_FILE"; fi
+  if [[ -n $NOTICE_FILE ]]; then printf '%s\t%s\n' "$code" "$*" >>"$NOTICE_FILE"; fi
   log "warning: $*"
 }
 
@@ -407,12 +408,24 @@ resolve_url() {
       dns=$(grep -m1 -o '"DNSName": *"[^"]*"' <<<"$json" | sed -E 's/.*"([^"]*)"$/\1/; s/\.$//')
       if [[ -n $dns ]]; then
         printf 'https://%s\n' "$dns" >"$dir/url"
+        has_own_name "$name" ||
+          notice hostname "$name: the tailnet already has a device named $PROJECT-$name, so this environment is ${dns%%.*}"
         return
       fi
     fi
     sleep 2
   done
   fail ts_login "$name: the Tailscale sidecar did not log in within two minutes (docker logs $PROJECT-$name-ts-1)"
+}
+
+# Tailscale gives a node a name with a suffix ("-1") when the tailnet already has a device with its hostname:
+# a node of an earlier environment that never logged out, or a baseline created before. The environment
+# works, but under another address than its name. False when that happened; true while the URL is unknown.
+has_own_name() {
+  local url
+  url=$(cat "$(env_dir "$1")/url" 2>/dev/null) || return 0
+  url=${url#https://}
+  [[ ${url%%.*} == "$PROJECT-$1" ]]
 }
 
 prepare_env() {
@@ -809,6 +822,8 @@ cmd_doctor() {
   # The copied configuration describes this environment, even if the checkout has changed since.
   load_config "$(cat "$dir/config-dir")"
   echo "== url: $(app_url "$name") (tag $(cat "$dir/tag" 2>/dev/null), $(cat "$dir/mode" 2>/dev/null || echo 'not deployed'))"
+  has_own_name "$name" ||
+    echo "WARNING: not named $PROJECT-$name: another device in the tailnet has that name (docs/troubleshooting.md)"
   echo "== containers"
   compose_env "$name" ps -a || true
   echo "== tailscale node"

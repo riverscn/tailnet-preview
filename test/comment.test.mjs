@@ -23,10 +23,32 @@ test('ready lists the URL, extra ports, the mode and the project text', () => {
 
 test('ready mentions a pending certificate with its reason', () => {
   for (const language of ['en', 'zh-CN']) {
-    const pending = render('ready', { language, url: 'https://x', notice: 'cert', noticeDetail: 'pr-1: NXDOMAIN' })
+    const pending = render('ready', {
+      language,
+      url: 'https://x',
+      notices: [{ code: 'cert', detail: 'pr-1: NXDOMAIN' }],
+    })
     assert.match(pending, /NXDOMAIN/)
     assert.match(pending, /doctor/)
     assert.doesNotMatch(render('ready', { language, url: 'https://x' }), /NXDOMAIN|doctor/)
+  }
+})
+
+test('ready shows every notice, a taken hostname included', () => {
+  for (const language of ['en', 'zh-CN']) {
+    const body = render('ready', {
+      language,
+      url: 'https://p-main-1.t.ts.net',
+      notices: [
+        { code: 'hostname', detail: 'main: the tailnet already has a device named p-main' },
+        { code: 'cert', detail: 'main: NXDOMAIN' },
+        { code: 'unknown', detail: 'ignored' },
+      ],
+    })
+    assert.match(body, /already has a device named p-main/)
+    assert.match(body, /Machines/)
+    assert.match(body, /NXDOMAIN/)
+    assert.doesNotMatch(body, /ignored/)
   }
 })
 
