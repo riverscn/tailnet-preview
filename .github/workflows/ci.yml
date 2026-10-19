@@ -45,5 +45,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: test/integration.sh
+      # The shared ingress: Traefik, CoreDNS and the fake Tailscale node in kernel mode.
+      - run: test/ingress.sh
       # The action's deploy decisions: fresh, upgraded, forked, baseline from the base branch.
       - run: test/action.sh

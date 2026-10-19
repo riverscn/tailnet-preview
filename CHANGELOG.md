@@ -4,6 +4,16 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+### Added
+
+- **Shared ingress** (`TP_INGRESS=shared`, opt-in per host): one Tailscale node per host with Traefik and
+  CoreDNS, one wildcard certificate for a domain of yours (DNS-01 through the DNS provider's API), names
+  resolved through the tailnet's split DNS. Environments are `<project>-<env>.<domain>` and need no
+  certificate of their own, so the per-environment certificate failures and Let's Encrypt limits no longer
+  apply. `tailnet-preview ingress up|down|status`. Design: docs/design.md section 10; setup:
+  docs/host-setup.md section 4. Redeploying an environment moves it to the ingress (its sidecar is
+  removed) or back.
+
 ## 0.2.5 - 2026-10-19
 
 ### Fixed

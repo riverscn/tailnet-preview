@@ -35,6 +35,7 @@ case "$1 $2" in
 }
 JSON
     ;;
+  'ip -4') echo 100.64.0.1 ;;
   'status --self') echo "100.64.0.1  ${TS_HOSTNAME}  ${domain}  linux  -" ;;
   'serve status') cat /var/lib/tailscale/tp-serve.json 2>/dev/null || echo 'No serve config' ;;
   'logout '*) echo "logged out" ;;

@@ -81,6 +81,45 @@ When configuring, add the label `preview`, then install it as a service:
 `sudo ./svc.sh install && sudo ./svc.sh start`. The runner's user must be in the `docker` group and is the
 user whose `~/previews/` and `~/.config/tailnet-preview/` are used.
 
+## 4. Shared ingress (optional, once per host)
+
+By default every environment is its own Tailscale node with its own certificate, requested during the
+deploy; that request fails often (docs/design.md section 7). With the shared ingress, the host has one
+Tailscale node and one wildcard certificate for a domain of yours, and environments are
+`https://<project>-<env>.<your domain>`. Design: [design.md section 10](design.md#10-shared-ingress-one-per-host-one-wildcard-certificate).
+It needs a domain whose DNS is at a provider with an API (Cloudflare, Alibaba Cloud DNS, DNSPod, … any
+[lego provider](https://go-acme.github.io/lego/dns/)). The steps for Cloudflare and `preview.example.com`:
+
+1. **A DNS token.** Cloudflare → My Profile → API Tokens → Create Token → template **Edit zone DNS**,
+   zone `example.com` only. Let's Encrypt's validation record is written under
+   `_acme-challenge.preview.example.com`; nothing else changes in the zone, and no public record points to
+   the host.
+2. **The settings,** in `~/.config/tailnet-preview/env` next to `TS_OAUTH_SECRET`:
+
+   ```sh
+   TP_INGRESS=shared
+   TP_INGRESS_DOMAIN=preview.example.com
+   TP_INGRESS_DNS_PROVIDER=cloudflare
+   TP_INGRESS_DNS_ENV=CF_DNS_API_TOKEN
+   CF_DNS_API_TOKEN=...
+   TP_INGRESS_ACME_EMAIL=you@example.com
+   ```
+
+   For another provider, use its lego name and the variables its lego page lists. The host needs
+   `/dev/net/tun` (`tailnet-preview host-check` checks it).
+
+3. **Start the ingress** and note its address: `tailnet-preview ingress up` prints it (`100.x.y.z`). The
+   wildcard certificate is requested in the background; `tailnet-preview doctor <env>` shows whether it is
+   issued.
+4. **The tailnet** (admin console):
+   - **Split DNS:** DNS → Nameservers → Add nameserver → Custom: the ingress's address, with **Restrict to
+     domain** `preview.example.com`. Names then resolve inside the tailnet, on every device that uses
+     Tailscale DNS, without a public record that some routers would filter.
+   - **Policy:** let your devices reach the ingress on port 53 as well:
+     `"dst": ["tag:preview:53,443,8025"]` (the ports of your projects' `PORTS` too).
+5. **Redeploy** each environment (push, or `tailnet-preview reset <env>` for the baseline). Each loses its
+   own Tailscale node and is served by the ingress from then on.
+
 ## What lives where
 
 | Path or name                    | Content                                                            |

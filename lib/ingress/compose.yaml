@@ -1,0 +1,45 @@
+# The host's shared ingress (TP_INGRESS=shared, docs/design.md section 10), written by the engine to
+# ~/previews/.ingress. One Tailscale node in kernel mode; Traefik (HTTPS, one wildcard certificate) and
+# CoreDNS (answers *.<TP_INGRESS_DOMAIN> for the tailnet's split DNS) run in its network namespace and
+# listen on its tailnet address only. The engine connects the node to each environment's network.
+services:
+  ts:
+    image: ${TP_TS_IMAGE}
+    hostname: ${TP_INGRESS_HOSTNAME}
+    environment:
+      TS_AUTHKEY: ${TP_TS_AUTHKEY}
+      TS_HOSTNAME: ${TP_INGRESS_HOSTNAME}
+      TS_EXTRA_ARGS: --advertise-tags=${TP_TS_TAGS}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: 'false'
+      TS_ACCEPT_DNS: 'false'
+    cap_add: [NET_ADMIN]
+    devices: ['/dev/net/tun:/dev/net/tun']
+    volumes:
+      - ts-state:/var/lib/tailscale
+    restart: unless-stopped
+
+  traefik:
+    image: ${TP_TRAEFIK_IMAGE}
+    network_mode: service:ts
+    command: ['--configFile=/etc/traefik/traefik.yml']
+    env_file: [dns.env]
+    volumes:
+      - ./traefik:/etc/traefik:ro
+      - ./routes:/routes:ro
+      - traefik-data:/data
+    depends_on: [ts]
+    restart: unless-stopped
+
+  dns:
+    image: ${TP_COREDNS_IMAGE}
+    network_mode: service:ts
+    command: ['-conf', '/etc/coredns/Corefile']
+    volumes:
+      - ./coredns:/etc/coredns:ro
+    depends_on: [ts]
+    restart: unless-stopped
+
+volumes:
+  ts-state:
+  traefik-data:
