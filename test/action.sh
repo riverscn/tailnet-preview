@@ -101,7 +101,7 @@ TP_SOURCE=$WORK/project "$TP" destroy main --force >/dev/null 2>&1
 deploy_step pr-3
 [[ $MODE == forked && $(notes pr-3) == "main seeded" ]] || fatal "baseline from base: mode $MODE, notes $(notes pr-3)"
 [[ -f $TP_HOME/tp-atest/envs/main/initialized ]] || fatal "baseline was not initialized"
-git worktree list | grep -q tailnet-preview-base && fatal "base worktree left behind"
+grep -q tailnet-preview-base <<<"$(git worktree list)" && fatal "base worktree left behind"
 ok "PR without baseline -> baseline initialized from main, then forked"
 
 printf '\n\033[32maction checks passed\033[0m\n'
