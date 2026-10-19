@@ -29,6 +29,10 @@ jobs:
       vars.PREVIEW_ENABLED == 'true' && (github.event_name == 'push' ||
       (github.event_name == 'pull_request' && github.event.action != 'closed' &&
        github.event.pull_request.head.repo.full_name == github.repository))
+    # A newer push to the same pull request supersedes this deploy; pushes to the default branch always finish.
+    concurrency:
+      group: preview-deploy-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v4

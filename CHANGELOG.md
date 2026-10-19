@@ -4,6 +4,17 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+### Fixed
+
+- A new deploy also stops a certificate request still running in the sidecar, not only the previous retry
+  loop, so it no longer waits for it.
+- The PR comment's table has a header row (`Service`, `Address`) instead of an empty one.
+
+### Changed
+
+- The documented workflow (and this repository's) cancels a pull request's deploy job when a newer push
+  arrives; deploys of the default branch always finish.
+
 ## 0.2.1 - 2026-10-19
 
 ### Fixed
