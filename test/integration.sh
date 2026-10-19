@@ -18,7 +18,7 @@ cleanup() {
     if [[ -d $env ]]; then "$TP" destroy "$(basename "$env")" --force >/dev/null 2>&1 || true; fi
   done
   docker images --filter label=tailnet-preview.project=tp-itest -q | xargs -r docker rmi -f >/dev/null 2>&1 || true
-  rm -rf "$WORK"
+  rm -rf "$WORK" "$REPO"/example/.tp-test-*
 }
 trap cleanup EXIT
 
@@ -52,8 +52,14 @@ expect_reason() {
   [[ $(cut -f1 "$TP_FAILURE_FILE" 2>/dev/null) == "$1" ]] || fatal "$2: reason '$(cat "$TP_FAILURE_FILE" 2>/dev/null)', expected $1"
   ok "$2"
 }
+# A variant of the example's configuration, next to it so that ../compose.yaml still resolves.
+variant() {
+  local dir=$REPO/example/.tp-test-$1
+  rm -rf "$dir" && cp -R "$REPO/example/.tailnet-preview" "$dir"
+  printf '%s' "$dir"
+}
 mode() { "$TP" info "$1" | sed -n 's/^mode=//p'; }
-notes() { "$TP" compose "$1" exec -T app psql -Atq -F ' ' -c 'SELECT env, body FROM notes ORDER BY id' 2>/dev/null; }
+notes() { "$TP" compose "$1" exec -T app psql -Atq -F ' ' -c 'SELECT env, body FROM notes ORDER BY id' 2>>"$WORK/notes-errors"; }
 http() { "$TP" compose "$1" exec -T ts wget -q -O - "http://app:8080$2" 2>/dev/null; }
 
 step "prerequisites"
@@ -79,6 +85,9 @@ ok "fresh PR seeded"
 ok "compose.env is private"
 grep -q '"Proxy": "http://app:8080"' "$TP_HOME/tp-itest/envs/pr-1/tailscale/serve.json" || fatal "serve.json"
 ok "serve.json proxies to the HTTP upstream"
+[[ -z $(docker port tp-itest-pr-1-app-1 2>/dev/null) ]] || fatal "pr-1 publishes the project's port 8080"
+docker ps --format '{{.Names}}' | grep -qx example-app && fatal "the fixed container name was kept"
+ok "published ports and fixed container names are removed"
 
 step "baseline and fork"
 run deploy main --tag "$TAG"
@@ -123,17 +132,17 @@ grep -q 'creating with empty volumes' "$WORK/stderr" || fatal "pr-1 was not recr
 [[ $(notes pr-1) == "pr-1 seeded" ]] || fatal "recreated pr-1 has only its seed: $(notes pr-1)"
 ok "half-created environment recreated"
 
-step "without DATA_VOLUMES every PR starts fresh"
-cp -R "$TP_CONFIG" "$WORK/nodata" && sed -i 's/^DATA_VOLUMES=.*//' "$WORK/nodata/config.env"
-TP_CONFIG=$WORK/nodata run deploy pr-4 --tag "$TAG"
-expect_rc 0 "deploy pr-4 without DATA_VOLUMES"
-[[ $(mode pr-4) == fresh && $(notes pr-4) == "pr-4 seeded" ]] || fatal "pr-4: $(mode pr-4), $(notes pr-4)"
+step "DATA_VOLUMES=none: every PR starts fresh"
+nodata=$(variant nodata) && echo 'DATA_VOLUMES=none' >>"$nodata/config.env"
+TP_CONFIG=$nodata run deploy pr-4 --tag "$TAG"
+expect_rc 0 "deploy pr-4 with DATA_VOLUMES=none"
+[[ $(mode pr-4) == fresh && $(notes pr-4) == "pr-4 seeded" ]] || fatal "pr-4: $(mode pr-4), $(notes pr-4) $(cat "$WORK/notes-errors")"
 ok "pr-4 fresh although a baseline exists"
 run destroy pr-4
 expect_rc 0 "destroy pr-4"
 
-cp -R "$TP_CONFIG" "$WORK/wrongvol" && sed -i 's/^DATA_VOLUMES=.*/DATA_VOLUMES=nonexistent/' "$WORK/wrongvol/config.env"
-TP_CONFIG=$WORK/wrongvol run deploy pr-5 --tag "$TAG"
+wrongvol=$(variant wrongvol) && echo 'DATA_VOLUMES=nonexistent' >>"$wrongvol/config.env"
+TP_CONFIG=$wrongvol run deploy pr-5 --tag "$TAG"
 expect_rc 1 "a DATA_VOLUMES entry that is not a volume fails"
 expect_reason fork "reason fork"
 [[ $(http main /health) == ok ]] || fatal "baseline is back up after a failed fork"
@@ -150,23 +159,49 @@ run has pr-2
 expect_rc 0 "environment kept without HTTPS"
 "$TP" compose pr-2 exec -T ts rm /var/lib/tailscale/no-https
 
-cp -R "$TP_CONFIG" "$WORK/limited" && echo 'MAX_ENVS=2' >>"$WORK/limited/config.env"
-TP_CONFIG=$WORK/limited run deploy pr-3 --tag "$TAG"
+limited=$(variant limited) && echo 'MAX_ENVS=2' >>"$limited/config.env"
+TP_CONFIG=$limited run deploy pr-3 --tag "$TAG"
 expect_rc 3 "limit of PR environments exits 3"
 
-cp -R "$TP_CONFIG" "$WORK/bad" && echo 'NOPE=1' >>"$WORK/bad/config.env"
-TP_CONFIG=$WORK/bad run deploy pr-3 --tag "$TAG"
+bad=$(variant bad) && echo 'NOPE=1' >>"$bad/config.env"
+TP_CONFIG=$bad run deploy pr-3 --tag "$TAG"
 expect_rc 1 "unknown config key fails"
 expect_reason config "reason config"
 
-cp -R "$TP_CONFIG" "$WORK/sick" && sed -i 's|^HEALTH_PATH=.*|HEALTH_PATH=/missing|' "$WORK/sick/config.env"
-TP_CONFIG=$WORK/sick TP_HEALTH_TIMEOUT=6 run deploy pr-1 --tag "$TAG"
+sick=$(variant sick) && sed -i 's|^HEALTH_PATH=.*|HEALTH_PATH=/missing|' "$sick/config.env"
+TP_CONFIG=$sick TP_HEALTH_TIMEOUT=6 run deploy pr-1 --tag "$TAG"
 expect_rc 1 "failing health check fails"
 expect_reason health "reason health"
 
 TS_OAUTH_SECRET='' run deploy pr-1 --tag "$TAG"
 expect_rc 1 "missing OAuth secret fails"
 expect_reason ts_secret "reason ts_secret"
+
+step "validate and init"
+run validate
+expect_rc 0 "validate the example"
+grep -q '0 error(s), 0 warning(s)' <<<"$OUT" || fatal "the example validates cleanly: $OUT"
+grep -q 'copy every named volume from the baseline: db-data' <<<"$OUT" || fatal "validate resolves DATA_VOLUMES"
+ok "validate output"
+broken=$(variant broken) && sed -i 's/^HTTP=.*/HTTP=nope:80/' "$broken/config.env" && echo 'DATA_VOLUMES=nope' >>"$broken/config.env"
+TP_CONFIG=$broken run validate
+expect_rc 1 "validate rejects a wrong HTTP service and volume"
+grep -q "no running service 'nope'" <<<"$OUT" || fatal "validate names the HTTP error: $OUT"
+grep -q "DATA_VOLUMES entry 'nope'" <<<"$OUT" || fatal "validate names the volume error: $OUT"
+ok "validate names both errors"
+fixed=$(variant fixed) && printf 'volumes:\n  db-data:\n    name: shared-data\n' >>"$fixed/compose.yaml"
+TP_CONFIG=$fixed run validate
+expect_rc 1 "validate rejects a fixed volume name"
+mkdir -p "$WORK/newproject" && cp "$REPO/example/compose.yaml" "$WORK/newproject/compose.yaml"
+mkdir -p "$WORK/newproject/web" && echo 'FROM scratch' >"$WORK/newproject/web/Dockerfile"
+TP_SOURCE=$WORK/newproject TP_CONFIG=$WORK/newproject/.tailnet-preview run init
+expect_rc 0 "init in a project with a compose file"
+grep -qx 'COMPOSE_FILES=../compose.yaml compose.yaml' "$WORK/newproject/.tailnet-preview/config.env" ||
+  fatal "init uses the project's compose file"
+grep -qx 'IMAGES=web=web/Dockerfile' "$WORK/newproject/.tailnet-preview/config.env" || fatal "init finds the Dockerfile"
+ok "init finds the compose file and the Dockerfile"
+TP_SOURCE=$WORK/newproject TP_CONFIG=$WORK/newproject/.tailnet-preview run init
+expect_rc 1 "init refuses to overwrite"
 
 step "operations"
 run doctor pr-2

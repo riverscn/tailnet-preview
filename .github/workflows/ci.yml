@@ -26,6 +26,10 @@ jobs:
         run: npx --yes prettier@3.9.9 --check .
       - name: unit tests
         run: node --test 'test/*.test.mjs'
+      - name: validate the example's configuration
+        run: bin/tailnet-preview validate
+        env:
+          TP_CONFIG: example/.tailnet-preview
 
   # The real engine, Docker, PostgreSQL and the example project; only Tailscale is faked.
   integration:

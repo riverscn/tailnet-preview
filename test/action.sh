@@ -48,6 +48,12 @@ deploy_step() {
     fatal "deploy of $1: code $CODE"
   }
 }
+build() {
+  TP_SOURCE=$WORK/project "$TP" build >"$WORK/log" 2>&1 || {
+    tail -30 "$WORK/log"
+    fatal "build"
+  }
+}
 notes() { TP_SOURCE=$WORK/project "$TP" compose "$1" exec -T app psql -Atq -F ' ' -c 'SELECT env, body FROM notes ORDER BY id'; }
 
 docker build -q -t tp-fake-tailscale:test "$REPO/test/fake-tailscale" >/dev/null
@@ -63,9 +69,11 @@ git clone -q --bare . "$WORK/origin.git" && git remote add origin "$WORK/origin.
 git checkout -qb adopt
 mkdir -p example && cp -R "$REPO/example/app" "$REPO/example/Dockerfile" example/
 cp -R "$REPO/example/.tailnet-preview" .tailnet-preview
+# The project's own compose file sits at its root here, which is where ../compose.yaml points.
+cp "$REPO/example/compose.yaml" compose.yaml
 git add . && git commit -qm 'adopt tailnet-preview'
 
-TP_SOURCE=$WORK/project "$TP" build >/dev/null 2>&1
+build
 deploy_step pr-1
 [[ $MODE == fresh ]] || fatal "first PR: mode $MODE, expected fresh"
 [[ $(notes pr-1) == "pr-1 seeded" ]] || fatal "first PR is seeded"
@@ -77,13 +85,13 @@ ok "same PR again -> upgraded"
 
 # Merge it; the push to main creates the baseline.
 git checkout -q main && git merge -q --ff-only adopt && git push -q origin main
-TP_SOURCE=$WORK/project "$TP" build >/dev/null 2>&1
+build
 deploy_step main
 [[ $(notes main) == "main seeded" ]] || fatal "baseline seeded"
 ok "push to main -> baseline"
 
 git checkout -qb feature && echo change >>README.md && git commit -qam change
-TP_SOURCE=$WORK/project "$TP" build >/dev/null 2>&1
+build
 deploy_step pr-2
 [[ $MODE == forked && $(notes pr-2) == "main seeded" ]] || fatal "next PR: mode $MODE, notes $(notes pr-2)"
 ok "next PR -> forked from the baseline"
