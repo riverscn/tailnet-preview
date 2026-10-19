@@ -1,37 +1,24 @@
-# Services of the example project (docs/design.md 5.2), its database included. The engine adds the
-# Tailscale sidecar `ts`.
+# What a preview environment needs on top of the project's own compose file (../compose.yaml). Relative
+# paths resolve against that file's directory. tailnet-preview removes the published port and the fixed
+# container name by itself, and adds the Tailscale sidecar.
 x-database: &database
   PGHOST: db
   PGUSER: postgres
   PGPASSWORD: ${DB_PASSWORD}
   PGDATABASE: example
   APP_ENV: ${TP_ENV}
-  APP_URL: ${TP_URL}
 
 x-needs-db: &needs-db
   db:
     condition: service_healthy
 
 services:
-  db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: example
-    volumes:
-      - db-data:/var/lib/postgresql/data
-    restart: unless-stopped
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres -d example']
-      interval: 2s
-      timeout: 3s
-      retries: 30
-
+  # The image built for this PR, and the environment's own name and address.
   app:
     image: ${TP_IMAGE_APP}
-    environment: *database
-    depends_on: *needs-db
-    restart: unless-stopped
+    environment:
+      APP_ENV: ${TP_ENV}
+      APP_URL: ${TP_URL}
 
   # Tasks: run with `docker compose run --rm`, not kept running.
   migrate:
@@ -48,7 +35,3 @@ services:
     depends_on: *needs-db
     command:
       ['sh', '-c', 'psql -v ON_ERROR_STOP=1 -c "INSERT INTO notes (env, body) VALUES (''$$APP_ENV'', ''seeded'')"']
-
-volumes:
-  # Listed in DATA_VOLUMES: copied from the baseline into new PR environments.
-  db-data:

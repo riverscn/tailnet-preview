@@ -1,0 +1,24 @@
+# Applied on top of the project's own compose file (see COMPOSE_FILES in config.env). Write only what a
+# preview environment needs differently. Guide: docs/configuring.md of tailnet-preview.
+#
+# tailnet-preview already removes published ports and fixed container names, and adds the Tailscale
+# sidecar. Variables available: TP_URL, TP_ENV, TP_PROJECT, TP_IMAGE_<NAME>, and every name in SECRETS.
+services:
+  # TODO: use the images tailnet-preview builds, tell the application its address, and switch anything that
+  # reaches the outside world (mail, SMS, payments) to mocks.
+  web:
+    image: ${TP_IMAGE_WEB}
+    environment:
+      APP_URL: ${TP_URL}
+
+  # Tasks: run with `docker compose run --rm`, never kept running.
+  # migrate runs before every deploy; seed runs once, when an environment starts with empty data.
+  # TODO: replace the commands, or delete a task the project does not need.
+  migrate:
+    image: ${TP_IMAGE_WEB}
+    profiles: [tasks]
+    command: ['echo', 'TODO: migrate']
+  seed:
+    image: ${TP_IMAGE_WEB}
+    profiles: [tasks]
+    command: ['echo', 'TODO: seed demo data']
