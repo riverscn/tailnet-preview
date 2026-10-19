@@ -4,6 +4,8 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+## 0.2.1 - 2026-10-19
+
 ### Fixed
 
 - A deploy waited up to three minutes for the certificate when a request was already running (the
