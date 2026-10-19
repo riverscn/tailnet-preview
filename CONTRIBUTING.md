@@ -38,3 +38,12 @@ deploys the example on the maintainers' preview host for every pull request from
 - Add or update tests with the change.
 - Update [CHANGELOG.md](CHANGELOG.md) under "Unreleased".
 - Code and code comments are in English; documentation is English first, with Chinese in `README.zh-CN.md`.
+
+## Releases
+
+1. A pull request renames "Unreleased" in `CHANGELOG.md` to `## X.Y.Z - <date>` (with a new empty
+   "Unreleased" above it) and updates the pinned version in `README.md`, `README.zh-CN.md`,
+   `docs/project-setup.md` and `docs/design.md`.
+2. After it is merged, run the **Release** workflow on `main` with the version `X.Y.Z`. It checks the
+   changelog, creates the tag `vX.Y.Z` and a GitHub release with that version's notes and, from 1.0.0,
+   moves the major tag `vX`.

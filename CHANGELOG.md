@@ -4,9 +4,10 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
-## 1.0.0 - 2026-10-19
+## 0.1.0 - 2026-10-19
 
-First release.
+First release. Until 1.0.0, a minor version may change the configuration, commands or action inputs: pin the
+full version.
 
 ### Added
 

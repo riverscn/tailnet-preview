@@ -15,4 +15,4 @@ to read another's data through the engine.
 
 ## Supported versions
 
-The latest release of the current major version.
+The latest release. While the version is 0.x, fixes are released only as a new 0.y.z, not backported.
