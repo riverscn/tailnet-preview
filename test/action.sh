@@ -63,7 +63,8 @@ env_step() {
   COMMAND=$1 EVENT=pull_request PR=5 HEAD_REPO=$2 GITHUB_REPOSITORY=me/app DEFAULT_BRANCH=main GITHUB_REF=refs/pull/5/merge \
     GITHUB_OUTPUT=$WORK/env-output bash --noprofile --norc -eo pipefail "$WORK/env-step.sh" >"$WORK/log" 2>&1
 }
-env_step deploy me/app && [[ $(cat "$WORK/env-output") == name=pr-5 ]] || fatal "deploy of a PR from the repository"
+env_step deploy me/app || fatal "deploy of a PR from the repository: $(cat "$WORK/log")"
+[[ $(cat "$WORK/env-output") == name=pr-5 ]] || fatal "environment of a PR from the repository: $(cat "$WORK/env-output")"
 if env_step deploy someone/app; then fatal "deploy of a fork's PR was not refused"; fi
 grep -q 'does not deploy pull requests from forks' "$WORK/log" || fatal "refusal names the reason: $(cat "$WORK/log")"
 env_step destroy someone/app || fatal "destroy of a fork's PR (nothing of its code runs)"
