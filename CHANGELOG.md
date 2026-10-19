@@ -4,6 +4,8 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+## 0.3.0 - 2026-10-19
+
 ### Added
 
 - **Shared ingress** (`TP_INGRESS=shared`, opt-in per host): one Tailscale node per host with Traefik and
