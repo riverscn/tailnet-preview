@@ -6,9 +6,9 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ### Added
 
-- Deploy requests the node's HTTPS certificate once the health check passes, retries an invalid order once,
-  and fails with the new reason `cert` (with Let's Encrypt's error) instead of reporting "ready" while
-  browsers fail the TLS handshake. `doctor` prints the sidecar's last certificate messages.
+- Deploy requests the node's HTTPS certificate once the health check passes and fails with the new reason
+  `cert`, carrying Let's Encrypt's reason, instead of reporting "ready" while browsers fail the TLS
+  handshake. `doctor` prints the sidecar's last certificate messages.
 
 ### Fixed
 

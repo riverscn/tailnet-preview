@@ -412,24 +412,38 @@ https_enabled() {
 
 # Have the sidecar request its HTTPS certificate now instead of on the first visit, where a failure only
 # shows as a TLS error in the browser (docs/design.md section 7). tailscaled caches it, so serve uses it and
-# later deploys return at once. Prints the last line of the error on failure.
+# later deploys return at once. One attempt only: a retry publishes a new DNS record that Let's Encrypt
+# again validates at once, and spends one of its five failed validations per name and hour. Prints the
+# error, with Let's Encrypt's reason when it can be fetched, on failure.
 issue_cert() {
-  local name=$1 domain out i
+  local name=$1 domain out order reason
   domain=$(app_url "$name")
   domain=${domain#https://}
-  for i in 1 2; do
-    # shellcheck disable=SC2016 # expanded by the container's shell
-    out=$(compose_env "$name" exec -T ts timeout "${TP_CERT_TIMEOUT:-180}" sh -c \
-      'tailscale cert --cert-file /tmp/tp.crt --key-file /tmp/tp.key "$1"; rc=$?; rm -f /tmp/tp.crt /tmp/tp.key; exit $rc' \
-      _ "$domain" 2>&1) && return 0
-    out=$(tail -n 1 <<<"$out")
-    log "$name: certificate for $domain not issued (attempt $i): $out"
-    # Let's Encrypt counts failed validations: do not spend another one on a rate limit.
-    [[ $out != *rateLimited* && $i == 1 ]] || break
-    sleep "${TP_CERT_RETRY_DELAY:-60}"
-  done
+  # shellcheck disable=SC2016 # expanded by the container's shell
+  out=$(compose_env "$name" exec -T ts timeout "${TP_CERT_TIMEOUT:-180}" sh -c \
+    'tailscale cert --cert-file /tmp/tp.crt --key-file /tmp/tp.key "$1"; rc=$?; rm -f /tmp/tp.crt /tmp/tp.key; exit $rc' \
+    _ "$domain" 2>&1) && return 0
+  out=$(tail -n 1 <<<"$out")
+  # "order ... status: invalid" does not say why; the order's authorization does.
+  order=$(grep -oE 'https://acme[^ ]*/order/[0-9]+/[0-9]+' <<<"$out" | sed -n 1p) || true
+  if [[ -n $order ]]; then
+    reason=$(acme_reason "$name" "$order") || true
+    [[ -z $reason ]] || out="$reason"
+  fi
+  log "$name: certificate for $domain not issued: $out"
   printf '%s' "${out:0:300}"
   return 1
+}
+
+# The error of a failed Let's Encrypt order, from its public authorization; fetched by the sidecar, which
+# has network access and wget. Empty when it cannot be fetched.
+acme_reason() {
+  local name=$1 order=$2 json authz
+  json=$(compose_env "$name" exec -T ts wget -q -O - "$order" 2>/dev/null) || return 0
+  authz=$(grep -oE 'https://[^"]*/authz/[^"]*' <<<"$json" | sed -n 1p)
+  [[ -n $authz ]] || return 0
+  json=$(compose_env "$name" exec -T ts wget -q -O - "$authz" 2>/dev/null) || return 0
+  grep -oE '"detail": *"([^"\\]|\\.)*"' <<<"$json" | sed -n '1{s/^"detail": *"//;s/"$//;s/\\"/"/g;p}'
 }
 
 # Request the health path through the same upstream the sidecar proxies to; new backends need a moment.

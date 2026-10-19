@@ -7,7 +7,7 @@ set -euo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d)
 export TP_HOME=$WORK/home TP_PROJECT=tp-atest TS_OAUTH_SECRET=tskey-client-fake TP_TS_IMAGE=tp-fake-tailscale:test
-export TP_HOST_CONFIG=$WORK/no-host-config TP_RETRY_DELAY=1 TP_CERT_RETRY_DELAY=1
+export TP_HOST_CONFIG=$WORK/no-host-config TP_RETRY_DELAY=1
 TP=$REPO/bin/tailnet-preview
 STEP=$WORK/deploy-step.sh
 yq -r '.runs.steps[] | select(.id == "deploy") | .run' "$REPO/action.yml" >"$STEP"

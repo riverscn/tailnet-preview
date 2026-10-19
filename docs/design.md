@@ -205,11 +205,13 @@ and the steps to fix it (`lib/comment.cjs`, `REASONS`), matching the table in
 `https` and `cert` are special: the environment was created and is kept, but browsers cannot connect.
 `https`: the tailnet does not issue HTTPS certificates. `cert`: it does, but the node's certificate was not
 issued. Tailscale would request it on the first visit and a failure would only show as a TLS error in the
-browser, so the deploy requests it once the health check passes. Let's Encrypt rejects the order when
-Tailscale's DNS validation record has not reached public DNS yet ("Incorrect TXT record"); the engine waits
-a minute and tries once more. It does not retry `rateLimited` answers: Let's Encrypt allows five failed
-validations per name and hour, and browsers opening the address spend them too. The deploy fails so that
-the PR says so instead of "ready".
+browser, so the deploy requests it once the health check passes. Let's Encrypt validates the DNS record
+Tailscale publishes in the same second it is set, and rejects the order when the record has not reached
+public DNS yet (`NXDOMAIN`, or `Incorrect TXT record` when only older values are visible). The engine does
+not retry: every attempt publishes a new record that is validated at once again, and Let's Encrypt allows
+five failed validations per name and hour, which browsers opening the address spend too. The failure
+carries Let's Encrypt's reason, which the sidecar fetches from the order's public authorization. The deploy
+fails so that the PR says so instead of "ready"; per-node certificates are the weak point of this design.
 
 Pulls from the image registry are retried, one image at a time, because flaky links to Docker Hub reset
 connections and a parallel pull aborts every image when one connection drops.
