@@ -4,7 +4,7 @@ services:
   # Tailscale sidecar: https://<TP_HOSTNAME>.<tailnet>.ts.net. `tailscale serve` terminates HTTPS and
   # proxies to the project's services by name over the compose network (tailscale/serve.json).
   ts:
-    image: ${TP_TS_IMAGE:-tailscale/tailscale:stable}
+    image: ${TP_TS_IMAGE}
     hostname: ${TP_HOSTNAME}
     environment:
       TS_AUTHKEY: ${TP_TS_AUTHKEY}
@@ -21,9 +21,3 @@ services:
 
 volumes:
   ts-state:
-
-networks:
-  # The project's PostgreSQL network; services that use the database join it.
-  preview:
-    name: ${TP_NETWORK}
-    external: true

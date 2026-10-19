@@ -81,13 +81,11 @@ runs:
         echo "::endgroup::"
         if [[ $code == 0 && $ENV_NAME != main ]]; then
           "$TP" has "$ENV_NAME"; has=$?
-          if [[ $has == 0 ]]; then mode=upgraded
-          elif [[ $has == 2 ]]; then
+          if [[ $has == 2 ]]; then
             "$TP" has main; has=$?
-            if [[ $has == 0 ]]; then mode=forked
-            elif [[ $has == 2 ]]; then
-              # No baseline yet: build it from the base branch, or create the PR environment from an
-              # empty database when the base branch does not use tailnet-preview yet.
+            if [[ $has == 2 ]]; then
+              # No baseline yet: build it from the base branch, or create the PR environment with
+              # empty volumes when the base branch does not use tailnet-preview yet.
               base=$RUNNER_TEMP/tailnet-preview-base
               rm -rf "$base" && git worktree prune
               if git fetch --no-tags --depth=1 origin "+refs/heads/$BASE_REF:refs/remotes/origin/$BASE_REF" &&
@@ -96,15 +94,14 @@ runs:
                 echo "::group::initialize the baseline from $BASE_REF"
                 (export TP_SOURCE=$base TP_CONFIG=$base/$CONFIG_REL && "$TP" build && "$TP" deploy main >/dev/null) || code=$?
                 echo "::endgroup::"
-                mode=forked
               else
-                echo "$BASE_REF has no $CONFIG_REL/config.env: creating this environment from an empty database"
-                mode=fresh fresh=--fresh
+                echo "$BASE_REF has no $CONFIG_REL/config.env: creating this environment with empty volumes"
+                fresh=--fresh
               fi
               git worktree remove --force "$base" 2>/dev/null || true
-            else code=1
+            elif [[ $has != 0 ]]; then code=1
             fi
-          else code=1
+          elif [[ $has != 0 ]]; then code=1
           fi
         fi
         if [[ $code == 0 ]]; then
@@ -112,6 +109,8 @@ runs:
           url=$("$TP" deploy "$ENV_NAME" $fresh)
           code=$?
           echo "::endgroup::"
+          # How the environment got its data: forked, fresh or upgraded.
+          mode=$("$TP" info "$ENV_NAME" 2>/dev/null | sed -n 's/^mode=//p')
         fi
         {
           echo "code=$code"

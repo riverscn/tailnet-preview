@@ -1,19 +1,36 @@
-# Services of the example project (docs/design.md 5.2). The engine adds the Tailscale sidecar `ts` and
-# the `preview` network that reaches the project's PostgreSQL.
+# Services of the example project (docs/design.md 5.2), its database included. The engine adds the
+# Tailscale sidecar `ts`.
 x-database: &database
-  PGHOST: ${TP_DB_HOST}
-  PGPORT: ${TP_DB_PORT}
-  PGDATABASE: ${TP_DB_NAME}
-  PGUSER: example
-  PGPASSWORD: ${TP_DB_PASSWORD}
+  PGHOST: db
+  PGUSER: postgres
+  PGPASSWORD: ${DB_PASSWORD}
+  PGDATABASE: example
   APP_ENV: ${TP_ENV}
   APP_URL: ${TP_URL}
 
+x-needs-db: &needs-db
+  db:
+    condition: service_healthy
+
 services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: example
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres -d example']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
   app:
     image: ${TP_IMAGE_APP}
     environment: *database
-    networks: [default, preview]
+    depends_on: *needs-db
     restart: unless-stopped
 
   # Tasks: run with `docker compose run --rm`, not kept running.
@@ -21,13 +38,17 @@ services:
     image: ${TP_IMAGE_APP}
     profiles: [tasks]
     environment: *database
-    networks: [default, preview]
+    depends_on: *needs-db
     command: ['psql', '-v', 'ON_ERROR_STOP=1', '-f', '/app/migrate.sql']
 
   seed:
     image: ${TP_IMAGE_APP}
     profiles: [tasks]
     environment: *database
-    networks: [default, preview]
+    depends_on: *needs-db
     command:
       ['sh', '-c', 'psql -v ON_ERROR_STOP=1 -c "INSERT INTO notes (env, body) VALUES (''$$APP_ENV'', ''seeded'')"']
+
+volumes:
+  # Listed in DATA_VOLUMES: copied from the baseline into new PR environments.
+  db-data:

@@ -17,9 +17,6 @@ cleanup() {
   for env in "$TP_HOME"/tp-atest/envs/*; do
     if [[ -d $env ]]; then TP_SOURCE=$WORK/project "$TP" destroy "$(basename "$env")" --force >/dev/null 2>&1 || true; fi
   done
-  docker compose --project-name tp-atest-preview-infra -f "$REPO/lib/compose.postgres.yaml" \
-    --env-file "$TP_HOME/tp-atest/infra/compose.env" down -v >/dev/null 2>&1 || true
-  docker network rm tp-atest-preview >/dev/null 2>&1 || true
   docker images --filter label=tailnet-preview.project=tp-atest -q | xargs -r docker rmi -f >/dev/null 2>&1 || true
   rm -rf "$WORK"
 }
