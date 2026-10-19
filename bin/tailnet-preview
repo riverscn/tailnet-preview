@@ -606,7 +606,7 @@ acme_reason() {
 load_ingress_settings() {
   local var
   for var in TP_INGRESS TP_INGRESS_DOMAIN TP_INGRESS_DNS_PROVIDER TP_INGRESS_DNS_ENV TP_INGRESS_ACME_EMAIL \
-    TP_INGRESS_ACME_CA TP_INGRESS_DNS_RESOLVERS TP_INGRESS_HOSTNAME; do
+    TP_INGRESS_ACME_CA TP_INGRESS_DNS_RESOLVERS TP_INGRESS_DNS_DELAY TP_INGRESS_HOSTNAME; do
     [[ -n ${!var:-} ]] || printf -v "$var" '%s' "$(host_setting "$var" || true)"
   done
   INGRESS=${TP_INGRESS:-sidecar}
@@ -687,6 +687,15 @@ ensure_ingress() {
   compose_ingress up -d ts >&2
   ip=$(ingress_ip)
   printf '%s\n' "$ip" >"$INGRESS_DIR/ip"
+  # Some networks answer every DNS query on port 53 themselves (from a cache that remembers the validation
+  # record as missing for up to the zone's negative TTL), so no resolver can confirm it from here: wait a
+  # fixed time instead, then let Let's Encrypt validate from its own resolvers.
+  local delay=${TP_INGRESS_DNS_DELAY:-}
+  if [[ -z $delay && -n ${TP_INGRESS_DNS_PROVIDER:-} ]] &&
+    ingress_exec timeout 5 nslookup -type=A example.com 192.0.2.1 >/dev/null 2>&1; then
+    delay=60
+    log "this network intercepts DNS queries (192.0.2.1 answered), so the ingress cannot check the validation record; it waits ${delay}s instead (TP_INGRESS_DNS_DELAY)"
+  fi
   {
     echo "# Written by tailnet-preview (docs/design.md section 10). Static: changes restart Traefik."
     echo "entryPoints:"
@@ -698,8 +707,13 @@ ensure_ingress() {
       # Before Let's Encrypt is asked, lego waits until the record is visible to these resolvers and to every
       # authoritative name server (its default). Public resolvers, not the host's: a local one may still cache
       # the name as missing.
-      printf '      dnsChallenge:\n        provider: %s\n        resolvers:\n' "$TP_INGRESS_DNS_PROVIDER"
-      for var in ${TP_INGRESS_DNS_RESOLVERS:-1.1.1.1:53 8.8.8.8:53}; do printf '          - "%s"\n' "$var"; done
+      printf '      dnsChallenge:\n        provider: %s\n' "$TP_INGRESS_DNS_PROVIDER"
+      if [[ -n $delay ]]; then
+        printf '        propagation:\n          disableChecks: true\n          delayBeforeChecks: %ss\n' "$delay"
+      else
+        printf '        resolvers:\n'
+        for var in ${TP_INGRESS_DNS_RESOLVERS:-1.1.1.1:53 8.8.8.8:53}; do printf '          - "%s"\n' "$var"; done
+      fi
     fi
     printf 'log:\n  level: INFO\n'
   } | write_if_changed "$INGRESS_DIR/traefik/traefik.yml" && restart=1
