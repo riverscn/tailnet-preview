@@ -218,7 +218,12 @@ reached public DNS yet (`NXDOMAIN`, or `Incorrect TXT record` when only older va
 a timing problem between the two services, not the PR's, so the deploy succeeds with the notice `cert`,
 which carries Let's Encrypt's reason (the sidecar fetches it from the order's public authorization). A
 loop inside the sidecar, which outlives the deploy job, requests the certificate again after 5, 25 and 70
-minutes, within Let's Encrypt's five failed validations per name and hour; `doctor` shows its progress.
+minutes, then hourly for a day, within Let's Encrypt's five failed validations per name and hour; `doctor`
+shows its progress. Once a name has failed five times, Let's Encrypt refuses it until a time it gives
+("retry after ... UTC"), and every request meanwhile (a deploy, a retry, a browser visit) only adds to the
+failures. The engine reads that time from the sidecar's log: a deploy does not request then, and the loop
+first waits until it has passed. Tailscale itself can fail before Let's Encrypt is asked, when setting the
+validation record times out (`SetDNS ... context deadline exceeded`); the loop treats it like any failure.
 Per-node certificates remain the weak point of this design.
 
 Pulls from the image registry are retried, one image at a time, because flaky links to Docker Hub reset

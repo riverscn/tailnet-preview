@@ -440,6 +440,15 @@ issue_cert() {
   compose_env "$name" exec -T ts sh -c \
     'pid=/tmp/tp-cert-retry.pid; [ -f $pid ] && kill "$(cat $pid)"; rm -f $pid; pkill -f "tailscale [c]ert"' \
     >/dev/null 2>&1 || true
+  # While Let's Encrypt refuses the name, another request would only extend the refusal; the loop waits.
+  local blocked_until
+  blocked_until=$(cert_rate_limit_until "$name" "$domain")
+  if [[ -n $blocked_until ]]; then
+    out="rateLimited: Let's Encrypt refuses new requests for this name until $(date -u -d "@$blocked_until" '+%F %T') UTC"
+    log "$name: certificate for $domain not requested: $out"
+    printf '%s' "$out"
+    return 1
+  fi
   # Bounded: when Let's Encrypt or Tailscale is slow, the background loop takes over instead of the deploy.
   # shellcheck disable=SC2016 # expanded by the container's shell
   out=$(compose_env "$name" exec -T ts timeout "$limit" sh -c \
@@ -460,31 +469,59 @@ issue_cert() {
   return 1
 }
 
+# The time (epoch seconds) until which Let's Encrypt refuses requests for the domain, from the last rate-limit
+# error in the sidecar's log ("too many failed authorizations (5) ... retry after <time> UTC"); empty if none
+# is pending.
+cert_rate_limit_until() {
+  local name=$1 domain=$2 when t
+  when=$(grep -F "cert(\"$domain\")" <<<"$(compose_env "$name" logs --no-color --no-log-prefix ts 2>/dev/null)" |
+    sed -n 's/.*rateLimited.*retry after \([0-9-]* [0-9:]*\) UTC.*/\1/p' | tail -n 1) || true
+  [[ -n $when ]] || return 0
+  t=$(date -u -d "$when" +%s 2>/dev/null) || return 0
+  if ((t > $(date +%s))); then printf '%s' "$t"; fi
+}
+
 # Request the certificate again later, from a loop inside the sidecar so that it outlives the deploy job:
-# a few minutes later Tailscale's DNS record has usually propagated and a rate limit may have expired. The
-# delays (default 5, 20 and 45 minutes) stay within Let's Encrypt's five failed validations per hour. A new
-# deploy replaces the loop; the loop ends with the sidecar. Progress: /var/lib/tailscale/tp-cert-retry.log.
+# after 5, 25 and 70 minutes, then hourly for a day. A rate limit ("retry after <time> UTC") is waited out
+# first, by the loop and by the first attempt, since requests meanwhile only extend it. A new deploy replaces
+# the loop; the loop ends with the sidecar. Progress: /var/lib/tailscale/tp-cert-retry.log (doctor prints it).
 retry_cert_later() {
-  local name=$1 domain
+  local name=$1 domain delays blocked_until margin=${TP_CERT_RATE_LIMIT_MARGIN:-30} first
   domain=$(app_url "$name")
   domain=${domain#https://}
+  delays=${TP_CERT_RETRY_DELAYS:-300 1200 2700 $(printf '3600 %.0s' {1..21})}
+  blocked_until=$(cert_rate_limit_until "$name" "$domain")
+  if [[ -n $blocked_until ]]; then
+    first=$((blocked_until - $(date +%s) + margin))
+    if ((first > ${delays%% *})); then delays="$first ${delays#* }"; fi
+  fi
   # shellcheck disable=SC2016,SC2086 # expanded by the container's shell; the delays are words
   compose_env "$name" exec -d ts sh -c '
-    domain=$1; shift; log=/var/lib/tailscale/tp-cert-retry.log; pid=/tmp/tp-cert-retry.pid
+    domain=$1 margin=$2; shift 2; log=/var/lib/tailscale/tp-cert-retry.log; pid=/tmp/tp-cert-retry.pid
     [ -f $pid ] && kill "$(cat $pid)" 2>/dev/null
     echo $$ >$pid
+    skip=0
     for delay in "$@"; do
-      echo "$(date -u +%FT%TZ) next attempt in ${delay}s" >>$log
-      sleep "$delay"
+      if [ $skip = 0 ]; then
+        echo "$(date -u +%FT%TZ) next attempt in ${delay}s" >>$log
+        sleep "$delay"
+      fi
+      skip=0
       if out=$(tailscale cert --cert-file /tmp/tp.crt --key-file /tmp/tp.key "$domain" 2>&1); then
         rm -f /tmp/tp.crt /tmp/tp.key $pid
         echo "$(date -u +%FT%TZ) issued" >>$log
         exit 0
       fi
       echo "$(date -u +%FT%TZ) failed: $(echo "$out" | tail -n 1)" >>$log
+      when=$(echo "$out" | sed -n "s/.*rateLimited.*retry after \([0-9-]* [0-9:]*\) UTC.*/\1/p" | tail -n 1)
+      if [ -n "$when" ] && t=$(date -u -d "$when" +%s 2>/dev/null) && [ "$t" -gt "$(date +%s)" ]; then
+        echo "$(date -u +%FT%TZ) rate limited until $when UTC, waiting" >>$log
+        sleep $((t - $(date +%s) + margin))
+        skip=1
+      fi
     done
     rm -f $pid
-    echo "$(date -u +%FT%TZ) gave up" >>$log' _ "$domain" ${TP_CERT_RETRY_DELAYS:-300 1200 2700} >&2
+    echo "$(date -u +%FT%TZ) gave up" >>$log' _ "$domain" "$margin" $delays >&2
 }
 
 # The error of a failed Let's Encrypt order, from its public authorization; fetched by the sidecar, which
