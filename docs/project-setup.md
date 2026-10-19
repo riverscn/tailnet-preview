@@ -6,114 +6,36 @@ Adopting tailnet-preview in a repository takes a configuration directory and one
 
 Prerequisite: a prepared host ([host-setup.md](host-setup.md)).
 
-## 1. Make your application configurable for previews
+## 1. Prepare the application
 
-Preview environments run your production images with production settings, plus whatever makes them safe
-to share: mock SMS or payment providers, a demo data seed, a local mail catcher. Typical needs:
+Preview environments run the project's production images with production settings, plus whatever makes
+them safe to share: mock SMS or payment providers, demo data, a mail catcher. The application must read
+its public URL and its database connection from environment variables. Never point a preview environment
+at real user data.
 
-- the public URL comes from the environment (`TP_URL`), not from a hard-coded domain;
-- database connection settings come from the environment (the database is a service of the environment);
-- a seed command that loads demo data and refuses to run in real production unless explicitly allowed.
+## 2. Write `.tailnet-preview/`
 
-Never point a preview environment at real user data.
-
-## 2. Add `.tailnet-preview/`
+Follow [configuring.md](configuring.md): it goes step by step through images, compose files, the entry
+point, the application's address, mocks, data and tasks, and ends with `tailnet-preview validate` and a
+local smoke test. In short, for a project that already has a compose file:
 
 ```
 .tailnet-preview/
-  config.env       images, HTTP upstream, health check, data volumes
-  compose.yaml     your services, database included
-  comment.md       optional: text for the PR comment (demo accounts…)
-  db/init.sql      optional: anything compose.yaml mounts by relative path
+  config.env       IMAGES, COMPOSE_FILES, HTTP, HEALTH_PATH, SECRETS (DATA_VOLUMES defaults to every named volume)
+  compose.yaml     an override of the project's compose file: built images, TP_URL, mocks, migrate/seed tasks
+  comment.md       optional: demo accounts and hints for the PR comment
 ```
 
-`config.env`:
-
 ```sh
-# name=Dockerfile, build context is the repository root
 IMAGES=api=apps/api/Dockerfile web=apps/web/Dockerfile
-# https://<node>.<tailnet>.ts.net proxies to this service:port
+COMPOSE_FILES=../compose.yaml compose.yaml
 HTTP=web:80
-# extra HTTPS ports, e.g. a mail catcher's UI
-PORTS=8025=mailpit:8025
 HEALTH_PATH=/api/health
-# volumes that hold data: a new PR environment starts with a copy of the baseline's
-DATA_VOLUMES=db-data
-# generated once per project on the host, the same in every environment, available to compose by name
 SECRETS=DB_PASSWORD SESSION_SECRET
 ```
 
-`compose.yaml` describes the environment the way your local `docker compose` setup does, using the
-variables the engine provides (`TP_URL`, `TP_ENV`, `TP_IMAGE_<NAME>`, your `SECRETS`):
-
-```yaml
-x-env: &env
-  NODE_ENV: production
-  APP_URL: ${TP_URL}
-  DATABASE_URL: postgres://app:${DB_PASSWORD}@db:5432/app
-  SESSION_SECRET: ${SESSION_SECRET}
-  SMTP_URL: smtp://mailpit:1025
-
-x-needs-db: &needs-db
-  db:
-    condition: service_healthy
-
-services:
-  db:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: app
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: app
-    volumes:
-      - db-data:/var/lib/postgresql/data
-      # runs once, when the volume is empty: roles, extensions
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U app -d app']
-      interval: 2s
-      retries: 30
-    restart: unless-stopped
-  web:
-    image: ${TP_IMAGE_WEB}
-    restart: unless-stopped
-  api:
-    image: ${TP_IMAGE_API}
-    environment: *env
-    depends_on: *needs-db
-    restart: unless-stopped
-  mailpit:
-    image: axllent/mailpit:v1.31
-    restart: unless-stopped
-
-  # tasks, run with `docker compose run --rm`
-  migrate:
-    image: ${TP_IMAGE_API}
-    profiles: [tasks]
-    environment: *env
-    depends_on: *needs-db
-    command: ['node', 'dist/migrate.js']
-  seed:
-    image: ${TP_IMAGE_API}
-    profiles: [tasks]
-    environment: *env
-    depends_on: *needs-db
-    command: ['node', 'dist/seed.js']
-
-volumes:
-  db-data:
-```
-
-Rules ([design.md 5.2](design.md#52-composeyaml)):
-
-- Do not publish ports (`ports:`): the sidecar reaches services over the compose network, and nothing else
-  should. Do not define a service named `ts`.
-- Do not give data volumes a fixed `name:`; every environment needs its own.
-- Passwords shared by the database and the services go in `SECRETS`. A PR environment's database is a copy
-  of the baseline's, so it keeps the baseline's passwords; a secret generated per environment would not
-  match.
-- Anything else can be a volume too: list uploaded files or a search index in `DATA_VOLUMES` to copy them
-  with the database.
+The [example](../example/) is a complete project in this shape: `example/compose.yaml` is its own compose
+file, unchanged; `example/.tailnet-preview/` adds what previews need.
 
 ## 3. Enable it for the repository
 

@@ -35,7 +35,7 @@ pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）
 
 1. **一次性准备 tailnet 和主机：** 开启 HTTPS 证书，在访问策略里加上 `tag:preview`，创建 OAuth 客户端，装好 Docker 和标签为 `preview` 的 self-hosted runner。
    → [docs/host-setup.md](docs/host-setup.md)
-2. **在项目里加上 `.tailnet-preview/`：** 写明要构建哪些镜像，用 `compose.yaml` 描述你的服务（包括数据库），列出哪些数据卷保存数据；迁移和演示数据任务按需添加。→ [docs/project-setup.md](docs/project-setup.md)
+2. **在项目里加上 `.tailnet-preview/`：** 项目原有的 compose 文件原样复用，只需补充：要构建的镜像、网站入口、应用自己的地址、模拟服务，以及迁移和演示数据任务。`tailnet-preview init` 生成初稿，`tailnet-preview validate` 检查配置。分步骤的配置指南（英文）按人和 AI agent 都能照做的方式写成：→ [docs/configuring.md](docs/configuring.md)
 3. **加一个工作流** 调用这个 action：
 
    ```yaml

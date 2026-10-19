@@ -44,8 +44,10 @@ and copies the volumes you list in `DATA_VOLUMES`. Details: [docs/design.md](doc
 1. **Prepare the tailnet and the host once:** enable HTTPS certificates, add a `tag:preview` policy,
    create an OAuth client, install Docker and a self-hosted runner labelled `preview`.
    → [docs/host-setup.md](docs/host-setup.md)
-2. **Add `.tailnet-preview/` to your project:** which images to build, your services (database included)
-   in a `compose.yaml`, which volumes hold data, optional migrate and seed tasks. → [docs/project-setup.md](docs/project-setup.md)
+2. **Add `.tailnet-preview/` to your project:** your existing compose file is reused unchanged; you add
+   which images to build, the entry point, the application's own URL, mocks and migrate/seed tasks.
+   `tailnet-preview init` writes a starting point and `tailnet-preview validate` checks it. A step-by-step
+   guide, written so that a person or an AI agent can follow it: → [docs/configuring.md](docs/configuring.md)
 3. **Add a workflow** that calls the action:
 
    ```yaml
@@ -79,7 +81,8 @@ All commands: [docs/design.md](docs/design.md#6-commands).
 
 - [Design](docs/design.md): model, project configuration reference, commands, failure codes
 - [Host setup](docs/host-setup.md): tailnet, machine, runner
-- [Project setup](docs/project-setup.md): adopting tailnet-preview in a repository
+- [Configuring a project](docs/configuring.md): writing `.tailnet-preview/`, step by step, for people and AI agents
+- [Project setup](docs/project-setup.md): repository settings and the workflow
 - [Troubleshooting](docs/troubleshooting.md): symptoms, causes, fixes
 - [Security](docs/security.md): what you trust when you run it
 
