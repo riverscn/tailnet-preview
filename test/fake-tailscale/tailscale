@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2154 # TS_HOSTNAME is set on the container by compose.overlay.yaml
 # Fake tailscale CLI. `touch /var/lib/tailscale/no-https` makes the tailnet behave as if HTTPS
 # certificates were disabled.
 domain="${TS_HOSTNAME}.fake-tailnet.ts.net"

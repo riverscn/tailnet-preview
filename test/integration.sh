@@ -15,7 +15,7 @@ PASSED=0
 cleanup() {
   local env
   for env in "$TP_HOME"/tp-itest/envs/*; do
-    [[ -d $env ]] && "$TP" destroy "$(basename "$env")" --force >/dev/null 2>&1 || true
+    if [[ -d $env ]]; then "$TP" destroy "$(basename "$env")" --force >/dev/null 2>&1 || true; fi
   done
   docker compose --project-name tp-itest-preview-infra -f "$REPO/lib/compose.postgres.yaml" \
     --env-file "$TP_HOME/tp-itest/infra/compose.env" down -v >/dev/null 2>&1 || true

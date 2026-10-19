@@ -128,7 +128,7 @@ load_secrets() {
   # shellcheck disable=SC1090
   source "$SECRETS_FILE"
   set +a
-  TS_OAUTH_SECRET=$ts
+  POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?} TP_DB_PASSWORD=${TP_DB_PASSWORD:?} TS_OAUTH_SECRET=$ts
 }
 
 # ------------------------------------------------------------------ images

@@ -1,4 +1,5 @@
 #!/bin/sh
+# shellcheck disable=SC2154 # APP_ENV and APP_URL are set on the container by compose.yaml
 # A deliberately tiny HTTP handler: busybox nc runs it once per connection, stdin/stdout are the socket.
 # The database connection comes from the standard PG* environment variables.
 read -r method path _

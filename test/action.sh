@@ -15,7 +15,7 @@ yq -r '.runs.steps[] | select(.id == "deploy") | .run' "$REPO/action.yml" >"$STE
 cleanup() {
   local env
   for env in "$TP_HOME"/tp-atest/envs/*; do
-    [[ -d $env ]] && TP_SOURCE=$WORK/project "$TP" destroy "$(basename "$env")" --force >/dev/null 2>&1 || true
+    if [[ -d $env ]]; then TP_SOURCE=$WORK/project "$TP" destroy "$(basename "$env")" --force >/dev/null 2>&1 || true; fi
   done
   docker compose --project-name tp-atest-preview-infra -f "$REPO/lib/compose.postgres.yaml" \
     --env-file "$TP_HOME/tp-atest/infra/compose.env" down -v >/dev/null 2>&1 || true
