@@ -8,6 +8,7 @@ WORK=$(mktemp -d)
 export TP_HOME=$WORK/home TP_PROJECT=tp-itest TP_SOURCE=$REPO TP_CONFIG=$REPO/example/.tailnet-preview
 export TS_OAUTH_SECRET=tskey-client-fake TP_TS_IMAGE=tp-fake-tailscale:test TP_FAILURE_FILE=$WORK/failure
 export TP_NOTICE_FILE=$WORK/notice TP_CERT_RETRY_DELAYS='2 2 2' TP_CERT_RATE_LIMIT_MARGIN=1
+export TP_CERT_MIN_GAP=0
 export TP_RETRY_DELAY=1 TP_HOST_CONFIG=$WORK/no-host-config
 TP=$REPO/bin/tailnet-preview
 TAG=itest$(date +%s)
@@ -86,6 +87,8 @@ ok "fresh PR seeded"
 ok "compose.env is private"
 grep -q '"Proxy": "http://app:8080"' "$TP_HOME/tp-itest/envs/pr-1/tailscale/serve.json" || fatal "serve.json"
 ok "serve.json proxies to the HTTP upstream"
+grep -q '"Proxy": "http://app:8080"' <<<"$("$TP" compose pr-1 exec -T ts tailscale serve status)" || fatal "HTTPS on"
+ok "with its certificate, the sidecar serves HTTPS"
 [[ -z $(docker port tp-itest-pr-1-app-1 2>/dev/null) ]] || fatal "pr-1 publishes the project's port 8080"
 grep -qx example-app <<<"$(docker ps --format '{{.Names}}')" && fatal "the fixed container name was kept"
 ok "published ports and fixed container names are removed"
@@ -169,10 +172,13 @@ cert_requests() { wc -l <<<"$("$TP" compose pr-2 exec -T ts cat /var/lib/tailsca
 grep -q 'cert --cert-file' <<<"$("$TP" compose pr-2 exec -T ts cat /var/lib/tailscale/cert-requests)" ||
   fatal "deploy requests the certificate"
 ok "deploy requests the certificate"
-"$TP" compose pr-2 exec -T ts sh -c ': >/var/lib/tailscale/cert-requests; touch /var/lib/tailscale/cert-invalid'
+serve_status() { "$TP" compose pr-2 exec -T ts tailscale serve status; }
+"$TP" compose pr-2 exec -T ts sh -c ': >/var/lib/tailscale/cert-requests; touch /var/lib/tailscale/cert-invalid; rm -rf /var/lib/tailscale/certs'
 rm -f "$TP_NOTICE_FILE"
 run deploy pr-2 --tag "$TAG"
 expect_rc 0 "deploy without a certificate succeeds"
+[[ $(serve_status) == '{}' ]] || fatal "HTTPS off without a certificate, got: $(serve_status)"
+ok "without a certificate, the sidecar serves nothing (tailscaled would request one on every visit)"
 [[ $(cut -f1 "$TP_NOTICE_FILE" 2>/dev/null) == cert ]] || fatal "notice cert, got '$(cat "$TP_NOTICE_FILE" 2>/dev/null)'"
 grep -q 'Incorrect TXT record' "$TP_NOTICE_FILE" || fatal "notice cert carries Let's Encrypt's error"
 [[ $(cert_requests) == 1 ]] || fatal "deploy requests the certificate once, got $(cert_requests) requests"
@@ -184,7 +190,23 @@ grep -q 'failed: .*Incorrect TXT record' <<<"$(retry_log)" || fatal "the sidecar
 for _ in 1 2 3 4 5; do grep -q issued <<<"$(retry_log)" && break; sleep 1; done
 grep -q issued <<<"$(retry_log)" || fatal "a background retry gets the certificate: $(retry_log)"
 grep -q issued <<<"$("$TP" doctor pr-2)" || fatal "doctor shows the background retries"
-ok "the sidecar retries in the background until the certificate is issued; doctor shows it"
+grep -q '"Proxy": "http://app:8080"' <<<"$(serve_status)" || fatal "the loop switches HTTPS on: $(serve_status)"
+ok "the sidecar retries in the background until the certificate is issued, then serves HTTPS; doctor shows it"
+
+# Let's Encrypt remembers a missing validation record for a while: no request soon after a failed one,
+# unless tailscaled already has the certificate.
+"$TP" compose pr-2 exec -T ts sh -c ': >/var/lib/tailscale/cert-requests; date +%s >/var/lib/tailscale/tp-cert-failed'
+TP_CERT_MIN_GAP=600 run deploy pr-2 --tag "$TAG"
+expect_rc 0 "deploy with a certificate soon after a failed request"
+[[ $(cert_requests) == 1 ]] || fatal "an existing certificate is fetched regardless, got $(cert_requests) requests"
+"$TP" compose pr-2 exec -T ts sh -c ': >/var/lib/tailscale/cert-requests; rm -rf /var/lib/tailscale/certs; date +%s >/var/lib/tailscale/tp-cert-failed'
+rm -f "$TP_NOTICE_FILE"
+TP_CERT_MIN_GAP=600 run deploy pr-2 --tag "$TAG"
+expect_rc 0 "deploy without a certificate soon after a failed request"
+grep -q 'previous request failed' "$TP_NOTICE_FILE" || fatal "notice cert says why: $(cat "$TP_NOTICE_FILE")"
+[[ -z $("$TP" compose pr-2 exec -T ts cat /var/lib/tailscale/cert-requests) ]] || fatal "requested soon after a failure"
+ok "no certificate request soon after a failed one"
+"$TP" compose pr-2 exec -T ts rm -f /var/lib/tailscale/tp-cert-failed
 
 # A request that hangs (Let's Encrypt or Tailscale slow) does not hold the deploy up.
 "$TP" compose pr-2 exec -T ts touch /var/lib/tailscale/cert-slow
@@ -209,7 +231,7 @@ ok "a new deploy stops the earlier certificate request"
 
 # Rate limited: a deploy does not request while the limit lasts (it would only extend it); the background
 # loop waits it out, then gets the certificate.
-"$TP" compose pr-2 exec -T ts sh -c ': >/var/lib/tailscale/cert-requests; : >/var/lib/tailscale/tp-cert-retry.log; echo 20 >/var/lib/tailscale/cert-ratelimited'
+"$TP" compose pr-2 exec -T ts sh -c ': >/var/lib/tailscale/cert-requests; : >/var/lib/tailscale/tp-cert-retry.log; echo 20 >/var/lib/tailscale/cert-ratelimited; rm -rf /var/lib/tailscale/certs'
 rm -f "$TP_NOTICE_FILE"
 run deploy pr-2 --tag "$TAG"
 expect_rc 0 "deploy while Let's Encrypt rate limits the name"

@@ -302,6 +302,23 @@ serve_json() {
   printf '{\n  "TCP": { %s },\n  "Web": { %s }\n}\n' "$tcp" "$web"
 }
 
+# tailscaled requests a certificate whenever its serve configuration has HTTPS but the certificate is
+# missing: when the configuration loads, hourly, and on every TLS handshake, i.e. every browser visit. Each
+# failure spends one of Let's Encrypt's five per name and hour, so the sidecar serves only once the
+# certificate exists (docs/design.md section 7). serve.json stays where the engine writes it (/config, read
+# only); this switch, run in the sidecar by the engine and by the retry loop, copies it to TS_SERVE_CONFIG
+# ("on") or serves nothing ("off"). By rename: containerboot rereads the directory on every change and
+# exits on half a file.
+# shellcheck disable=SC2016 # expanded by the container's shell
+SERVE_SWITCH='f=/var/lib/tailscale/tp-serve.json
+if [ "$1" = on ]; then cp /config/serve.json $f.tmp; else echo "{}" >$f.tmp; fi && mv $f.tmp $f'
+
+serve_https() {
+  local name=$1 state=$2
+  compose_env "$name" exec -T ts sh -c "$SERVE_SWITCH" _ "$state" >&2 ||
+    log "warning: $name: could not switch HTTPS $state in the sidecar"
+}
+
 # A copy of the repository's working tree (tracked and untracked files that git does not ignore) with the
 # configuration directory on top. Compose files run from it, so relative paths keep working after the
 # checkout is gone, and an environment can be restarted at any time.
@@ -431,7 +448,7 @@ https_enabled() {
 # again validates at once, and spends one of its five failed validations per name and hour. Prints the
 # error, with Let's Encrypt's reason when it can be fetched, on failure.
 issue_cert() {
-  local name=$1 domain out order reason rc=0 limit=${TP_CERT_TIMEOUT:-60}
+  local name=$1 domain out order reason rc=0 limit=${TP_CERT_TIMEOUT:-60} gap=${TP_CERT_MIN_GAP:-360} failed
   domain=$(app_url "$name")
   domain=${domain#https://}
   # A new deploy supersedes the previous one: stop its background loop and any certificate request still
@@ -440,14 +457,27 @@ issue_cert() {
   compose_env "$name" exec -T ts sh -c \
     'pid=/tmp/tp-cert-retry.pid; [ -f $pid ] && kill "$(cat $pid)"; rm -f $pid; pkill -f "tailscale [c]ert"' \
     >/dev/null 2>&1 || true
-  # While Let's Encrypt refuses the name, another request would only extend the refusal; the loop waits.
-  local blocked_until
-  blocked_until=$(cert_rate_limit_until "$name" "$domain")
-  if [[ -n $blocked_until ]]; then
-    out="rateLimited: Let's Encrypt refuses new requests for this name until $(date -u -d "@$blocked_until" '+%F %T') UTC"
-    log "$name: certificate for $domain not requested: $out"
-    printf '%s' "$out"
-    return 1
+  # A certificate tailscaled already has comes back without asking Let's Encrypt; otherwise a request has to
+  # be worth one of the five failures.
+  if ! compose_env "$name" exec -T ts test -s "/var/lib/tailscale/certs/$domain.crt" >/dev/null 2>&1; then
+    # While Let's Encrypt refuses the name, another request would only extend the refusal; the loop waits.
+    local blocked_until
+    blocked_until=$(cert_rate_limit_until "$name" "$domain")
+    if [[ -n $blocked_until ]]; then
+      out="rateLimited: Let's Encrypt refuses new requests for this name until $(date -u -d "@$blocked_until" '+%F %T') UTC"
+      log "$name: certificate for $domain not requested: $out"
+      printf '%s' "$out"
+      return 1
+    fi
+    # Let's Encrypt's resolvers remember a missing validation record for up to five minutes (the negative
+    # TTL of ts.net), so a request soon after a failed one fails the same way.
+    failed=$(compose_env "$name" exec -T ts cat /var/lib/tailscale/tp-cert-failed 2>/dev/null) || failed=''
+    if [[ $failed =~ ^[0-9]+$ ]] && (($(date +%s) - failed < gap)); then
+      out="the previous request failed $(($(date +%s) - failed))s ago and Let's Encrypt may still see the validation record as missing; the sidecar requests again later"
+      log "$name: certificate for $domain not requested: $out"
+      printf '%s' "$out"
+      return 1
+    fi
   fi
   # Bounded: when Let's Encrypt or Tailscale is slow, the background loop takes over instead of the deploy.
   # shellcheck disable=SC2016 # expanded by the container's shell
@@ -455,11 +485,13 @@ issue_cert() {
     'tailscale cert --cert-file /tmp/tp.crt --key-file /tmp/tp.key "$1"; rc=$?; rm -f /tmp/tp.crt /tmp/tp.key; exit $rc' \
     _ "$domain" 2>&1) || rc=$?
   ((rc != 0)) || return 0
+  compose_env "$name" exec -T ts sh -c 'date +%s >/var/lib/tailscale/tp-cert-failed' >/dev/null 2>&1 || true
+  # "order ... status: invalid" does not say why; the order's authorization does. The order is not always
+  # on the last line.
+  order=$(grep -oE 'https://acme[^ ]*/order/[0-9]+/[0-9]+' <<<"$out" | sed -n 1p) || true
   out=$(tail -n 1 <<<"$out")
   # BusyBox timeout ends the command with SIGTERM (exit 143).
   if ((rc == 143 || rc == 124)); then out="no answer within ${limit}s (a request for this name may still be running)"; fi
-  # "order ... status: invalid" does not say why; the order's authorization does.
-  order=$(grep -oE 'https://acme[^ ]*/order/[0-9]+/[0-9]+' <<<"$out" | sed -n 1p) || true
   if [[ -n $order ]]; then
     reason=$(acme_reason "$name" "$order") || true
     [[ -z $reason ]] || out="$reason"
@@ -482,14 +514,15 @@ cert_rate_limit_until() {
 }
 
 # Request the certificate again later, from a loop inside the sidecar so that it outlives the deploy job:
-# after 5, 25 and 70 minutes, then hourly for a day. A rate limit ("retry after <time> UTC") is waited out
-# first, by the loop and by the first attempt, since requests meanwhile only extend it. A new deploy replaces
-# the loop; the loop ends with the sidecar. Progress: /var/lib/tailscale/tp-cert-retry.log (doctor prints it).
+# after 6, 26 and 71 minutes, then hourly for a day. A rate limit ("retry after <time> UTC") is waited out
+# first, by the loop and by the first attempt, since requests meanwhile only extend it; so is the
+# TP_CERT_MIN_GAP after a failure. Once issued, the loop switches HTTPS on. A new deploy replaces the loop;
+# the loop ends with the sidecar. Progress: /var/lib/tailscale/tp-cert-retry.log (doctor prints it).
 retry_cert_later() {
-  local name=$1 domain delays blocked_until margin=${TP_CERT_RATE_LIMIT_MARGIN:-30} first
+  local name=$1 domain delays blocked_until margin=${TP_CERT_RATE_LIMIT_MARGIN:-30} gap=${TP_CERT_MIN_GAP:-360} first
   domain=$(app_url "$name")
   domain=${domain#https://}
-  delays=${TP_CERT_RETRY_DELAYS:-300 1200 2700 $(printf '3600 %.0s' {1..21})}
+  delays=${TP_CERT_RETRY_DELAYS:-360 1200 2700 $(printf '3600 %.0s' {1..21})}
   blocked_until=$(cert_rate_limit_until "$name" "$domain")
   if [[ -n $blocked_until ]]; then
     first=$((blocked_until - $(date +%s) + margin))
@@ -497,7 +530,9 @@ retry_cert_later() {
   fi
   # shellcheck disable=SC2016,SC2086 # expanded by the container's shell; the delays are words
   compose_env "$name" exec -d ts sh -c '
-    domain=$1 margin=$2; shift 2; log=/var/lib/tailscale/tp-cert-retry.log; pid=/tmp/tp-cert-retry.pid
+    serve_switch() { sh -c "$switch" _ "$1"; }
+    domain=$1 margin=$2 gap=$3 switch=$4; shift 4; log=/var/lib/tailscale/tp-cert-retry.log; pid=/tmp/tp-cert-retry.pid
+    failed=/var/lib/tailscale/tp-cert-failed
     [ -f $pid ] && kill "$(cat $pid)" 2>/dev/null
     echo $$ >$pid
     skip=0
@@ -507,11 +542,18 @@ retry_cert_later() {
         sleep "$delay"
       fi
       skip=0
+      last=$(cat $failed 2>/dev/null); hold=$((${last:-0} + gap - $(date +%s)))
+      if [ $hold -gt 0 ]; then
+        echo "$(date -u +%FT%TZ) the last failure is too recent, waiting ${hold}s" >>$log
+        sleep $hold
+      fi
       if out=$(tailscale cert --cert-file /tmp/tp.crt --key-file /tmp/tp.key "$domain" 2>&1); then
-        rm -f /tmp/tp.crt /tmp/tp.key $pid
-        echo "$(date -u +%FT%TZ) issued" >>$log
+        rm -f /tmp/tp.crt /tmp/tp.key $pid $failed
+        serve_switch on
+        echo "$(date -u +%FT%TZ) issued, HTTPS on" >>$log
         exit 0
       fi
+      date +%s >$failed
       echo "$(date -u +%FT%TZ) failed: $(echo "$out" | tail -n 1)" >>$log
       when=$(echo "$out" | sed -n "s/.*rateLimited.*retry after \([0-9-]* [0-9:]*\) UTC.*/\1/p" | tail -n 1)
       if [ -n "$when" ] && t=$(date -u -d "$when" +%s 2>/dev/null) && [ "$t" -gt "$(date +%s)" ]; then
@@ -521,7 +563,7 @@ retry_cert_later() {
       fi
     done
     rm -f $pid
-    echo "$(date -u +%FT%TZ) gave up" >>$log' _ "$domain" "$margin" $delays >&2
+    echo "$(date -u +%FT%TZ) gave up" >>$log' _ "$domain" "$margin" "$gap" "$SERVE_SWITCH" $delays >&2
 }
 
 # The error of a failed Let's Encrypt order, from its public authorization; fetched by the sidecar, which
@@ -662,7 +704,11 @@ cmd_deploy() {
   # A missing certificate is a timing problem between Tailscale and Let's Encrypt, not the PR's: the deploy
   # succeeds, the PR comment says so, and the sidecar keeps trying (docs/design.md section 7).
   local cert_error
-  if ! cert_error=$(issue_cert "$name"); then
+  if cert_error=$(issue_cert "$name"); then
+    compose_env "$name" exec -T ts rm -f /var/lib/tailscale/tp-cert-failed >/dev/null 2>&1 || true
+    serve_https "$name" on
+  else
+    serve_https "$name" off
     retry_cert_later "$name"
     notice cert "$name: no HTTPS certificate yet for $(app_url "$name"): $cert_error"
   fi

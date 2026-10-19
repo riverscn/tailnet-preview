@@ -2,7 +2,8 @@
 # Interpolation variables come from the environment's compose.env, written by the engine.
 services:
   # Tailscale sidecar: https://<TP_HOSTNAME>.<tailnet>.ts.net. `tailscale serve` terminates HTTPS and
-  # proxies to the project's services by name over the compose network (tailscale/serve.json).
+  # proxies to the project's services by name over the compose network (tailscale/serve.json). The engine
+  # copies that file to TS_SERVE_CONFIG only once the node has its certificate (docs/design.md section 7).
   ts:
     image: ${TP_TS_IMAGE}
     hostname: ${TP_HOSTNAME}
@@ -11,7 +12,7 @@ services:
       TS_HOSTNAME: ${TP_HOSTNAME}
       TS_EXTRA_ARGS: --advertise-tags=${TP_TS_TAGS}
       TS_STATE_DIR: /var/lib/tailscale
-      TS_SERVE_CONFIG: /config/serve.json
+      TS_SERVE_CONFIG: /var/lib/tailscale/tp-serve.json
       TS_USERSPACE: 'true'
     volumes:
       - ts-state:/var/lib/tailscale
