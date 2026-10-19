@@ -4,6 +4,8 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+## 0.2.4 - 2026-10-19
+
 ### Changed
 
 - The background certificate retries continue hourly for a day after the 5, 25 and 70 minute attempts.
