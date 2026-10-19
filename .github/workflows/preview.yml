@@ -1,0 +1,95 @@
+# End-to-end test on a real preview host, with the example project: the baseline follows main, every PR
+# gets an environment copied from it, closing the PR removes it. It is also a complete example of the
+# workflow a project adds (docs/project-setup.md). Skipped unless the repository variable
+# PREVIEW_ENABLED is "true".
+name: Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+    inputs:
+      args:
+        description: 'Engine command, e.g. "reset main", "stop main", "doctor pr-12"'
+        required: true
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  deploy:
+    # Pull requests from forks are never deployed: deploying runs the PR's code on the host.
+    if: >-
+      vars.PREVIEW_ENABLED == 'true' && (github.event_name == 'push' ||
+      (github.event_name == 'pull_request' && github.event.action != 'closed' &&
+       github.event.pull_request.head.repo.full_name == github.repository))
+    runs-on: [self-hosted, preview]
+    steps:
+      - uses: actions/checkout@v4
+      # Other projects write `uses: riverscn/tailnet-preview@v1`; this repository tests its own code.
+      - id: preview
+        uses: ./
+        with:
+          command: deploy
+          config: example/.tailnet-preview
+        env:
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      - name: Check the example
+        env:
+          ENV_NAME: ${{ steps.preview.outputs.environment }}
+          MODE: ${{ steps.preview.outputs.mode }}
+          TP_CONFIG: example/.tailnet-preview
+        run: |
+          notes=$(bin/tailnet-preview compose "$ENV_NAME" exec -T ts wget -q -O - http://app:8080/notes)
+          echo "$notes"
+          case "$MODE" in
+            forked) grep -qx 'main seeded' <<<"$notes" ;;
+            fresh) grep -qx "$ENV_NAME seeded" <<<"$notes" ;;
+            upgraded | '') true ;;
+          esac
+
+  destroy:
+    if: >-
+      vars.PREVIEW_ENABLED == 'true' && github.event_name == 'pull_request' && github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, preview]
+    steps:
+      # The default branch's version: the PR branch may already be deleted.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: ./
+        with:
+          command: destroy
+          config: example/.tailnet-preview
+
+  nightly:
+    if: vars.PREVIEW_ENABLED == 'true' && github.event_name == 'schedule'
+    runs-on: [self-hosted, preview]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          command: nightly
+          config: example/.tailnet-preview
+        env:
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+
+  manual:
+    if: vars.PREVIEW_ENABLED == 'true' && github.event_name == 'workflow_dispatch'
+    runs-on: [self-hosted, preview]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./
+        with:
+          command: run
+          args: ${{ inputs.args }}
+          config: example/.tailnet-preview
+        env:
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
