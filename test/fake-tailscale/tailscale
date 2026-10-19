@@ -1,14 +1,27 @@
 #!/bin/sh
 # shellcheck disable=SC2154 # TS_HOSTNAME is set on the container by compose.overlay.yaml
-# Fake tailscale CLI. `touch /var/lib/tailscale/no-https` makes the tailnet behave as if HTTPS
-# certificates were disabled.
+# Fake tailscale CLI. In /var/lib/tailscale: `no-https` makes the tailnet behave as if HTTPS certificates
+# were disabled; `cert-invalid` and `cert-ratelimited` make certificate requests fail like Let's Encrypt
+# does; every request is appended to `cert-requests`. `starting` holds "S N": after S more status calls, N
+# calls report a sidecar that restarted and is still logging in.
 domain="${TS_HOSTNAME}.fake-tailnet.ts.net"
+state=/var/lib/tailscale
 case "$1 $2" in
   'status --json')
-    if [ -f /var/lib/tailscale/no-https ]; then certs=null; else certs="[\"$domain\"]"; fi
-    cat <<EOF
+    backend=Running
+    if [ -s $state/starting ]; then
+      read -r skip count <$state/starting
+      if [ "$skip" -gt 0 ]; then
+        echo "$((skip - 1)) $count" >$state/starting
+      elif [ "$count" -gt 0 ]; then
+        echo "0 $((count - 1))" >$state/starting
+        backend=NoState
+      fi
+    fi
+    if [ -f $state/no-https ] || [ $backend != Running ]; then certs=null; else certs="[\"$domain\"]"; fi
+    cat <<JSON
 {
-  "BackendState": "Running",
+  "BackendState": "${backend}",
   "Self": {
     "HostName": "${TS_HOSTNAME}",
     "DNSName": "${domain}."
@@ -18,11 +31,22 @@ case "$1 $2" in
     "nodekey:1": { "DNSName": "someone-else.fake-tailnet.ts.net." }
   }
 }
-EOF
+JSON
     ;;
   'status --self') echo "100.64.0.1  ${TS_HOSTNAME}  ${domain}  linux  -" ;;
   'serve status') cat /config/serve.json ;;
   'logout '*) echo "logged out" ;;
+  'cert '*)
+    echo "$*" >>$state/cert-requests
+    if [ -f $state/cert-ratelimited ]; then
+      echo "getCertPEM: 429 urn:ietf:params:acme:error:rateLimited: too many failed authorizations (5)" >&2
+      exit 1
+    elif [ -f $state/cert-invalid ]; then
+      echo "acme: authorization error for $domain: 403 urn:ietf:params:acme:error:unauthorized: Incorrect TXT record" >&2
+      exit 1
+    fi
+    echo "Wrote public cert"
+    ;;
   *)
     echo "fake tailscale: unsupported: $*" >&2
     exit 1

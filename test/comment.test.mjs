@@ -20,6 +20,15 @@ test('ready lists the URL, extra ports, the mode and the project text', () => {
   assert.match(body, /`abcdef1`/)
 })
 
+test('ready mentions a pending certificate with its reason', () => {
+  for (const language of ['en', 'zh-CN']) {
+    const pending = render('ready', { language, url: 'https://x', notice: 'cert', noticeDetail: 'pr-1: NXDOMAIN' })
+    assert.match(pending, /NXDOMAIN/)
+    assert.match(pending, /doctor/)
+    assert.doesNotMatch(render('ready', { language, url: 'https://x' }), /NXDOMAIN|doctor/)
+  }
+})
+
 test('failed gives cause, detail and numbered steps; unknown causes point to the logs', () => {
   const body = render('failed', { runUrl: 'https://run', reason: 'https', detail: 'pr-1: x' })
   assert.match(body, /\*\*Cause:\*\* .*HTTPS certificates.*\(pr-1: x\)/)

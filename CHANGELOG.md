@@ -4,6 +4,23 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+## 0.2.0 - 2026-10-19
+
+### Added
+
+- Deploy requests the node's HTTPS certificate once the health check passes. When Let's Encrypt does not
+  issue it (a timing problem between Tailscale and Let's Encrypt), the deploy still succeeds, the PR comment
+  says "HTTPS certificate pending" with Let's Encrypt's reason, and the sidecar requests it again after 5,
+  25 and 70 minutes. `doctor` prints the sidecar's certificate messages and the retries. Notices
+  (`TP_NOTICE_FILE`) are new: something the PR comment mentions although the deploy succeeded.
+
+### Fixed
+
+- A sidecar that restarted and was still logging in made the deploy report that the tailnet does not
+  issue HTTPS certificates; the check now waits until the sidecar runs.
+- The action's `run` command refuses `deploy pr-<n>` and `reset pr-<n>`, which would have deployed the
+  default branch's code into a PR environment.
+
 ## 0.1.0 - 2026-10-19
 
 First release. Until 1.0.0, a minor version may change the configuration, commands or action inputs: pin the

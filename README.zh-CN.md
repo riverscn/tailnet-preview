@@ -40,7 +40,7 @@ pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）
 
    ```yaml
    - uses: actions/checkout@v4
-   - uses: riverscn/tailnet-preview@v0.1.0
+   - uses: riverscn/tailnet-preview@v0.2.0
      with:
        command: deploy
        language: zh-CN # PR 评论用中文

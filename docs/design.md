@@ -203,14 +203,27 @@ and the steps to fix it (`lib/comment.cjs`, `REASONS`), matching the table in
 `https`, `fork`, `migrate`, `seed`, `health`.
 
 `https` is special: the environment was created and is kept, but browsers cannot connect because the
-tailnet does not issue HTTPS certificates. The deploy fails so that the PR says so instead of "ready".
+tailnet does not issue HTTPS certificates. The deploy fails so that the PR says so instead of "ready". The
+check waits until the sidecar runs: a sidecar that is (re)starting reports no certificate domains yet.
+
+A deploy that succeeds can still leave something the PR should mention: the engine writes
+`<code><TAB><detail>` to `TP_NOTICE_FILE` and the comment adds it to "ready". The only notice is `cert`.
+Tailscale requests a node's certificate on the first visit, where a failure only shows as a TLS error in
+the browser, so the deploy requests it once the health check passes. Let's Encrypt validates the DNS
+record Tailscale publishes in the same second it is set, and rejects the order when the record has not
+reached public DNS yet (`NXDOMAIN`, or `Incorrect TXT record` when only older values are visible). That is
+a timing problem between the two services, not the PR's, so the deploy succeeds with the notice `cert`,
+which carries Let's Encrypt's reason (the sidecar fetches it from the order's public authorization). A
+loop inside the sidecar, which outlives the deploy job, requests the certificate again after 5, 25 and 70
+minutes, within Let's Encrypt's five failed validations per name and hour; `doctor` shows its progress.
+Per-node certificates remain the weak point of this design.
 
 Pulls from the image registry are retried, one image at a time, because flaky links to Docker Hub reset
 connections and a parallel pull aborts every image when one connection drops.
 
 ## 8. The action
 
-`uses: riverscn/tailnet-preview@v0.1.0` with `command`:
+`uses: riverscn/tailnet-preview@v0.2.0` with `command`:
 
 | `command` | Typical trigger                                                              | Does                                                                                                                          |
 | --------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -219,7 +232,11 @@ connections and a parallel pull aborts every image when one connection drops.
 | `nightly` | `schedule`                                                                   | Backs up the baseline, prunes environments of closed PRs and unused images                                                    |
 | `run`     | `workflow_dispatch`                                                          | Runs an engine command given in `args`, e.g. `reset main`                                                                     |
 
-The action locates its own scripts through `github.action_path`, so a workflow pinned to `@v0.1.0` runs
+`run` uses the code of the ref the workflow checked out, normally the default branch, so it refuses
+`deploy pr-<n>` and `reset pr-<n>`: they would put the default branch's code into a PR environment. To
+rebuild a PR environment, run `destroy pr-<n>` and re-run the PR's deploy job.
+
+The action locates its own scripts through `github.action_path`, so a workflow pinned to `@v0.2.0` runs
 exactly that version of the engine.
 
 ## 9. Versioning
@@ -229,7 +246,7 @@ inputs. Releases are tagged `vX.Y.Z` by the Release workflow (`.github/workflows
 notes of that version in `CHANGELOG.md`.
 
 - **0.x** (now): the interface is still settling as the first projects adopt it. A minor version may break
-  it, so projects pin the full version (`@v0.1.0`). There is no moving `v0` tag, and releases are marked as
+  it, so projects pin the full version (`@v0.2.0`). There is no moving `v0` tag, and releases are marked as
   pre-releases.
 - **From 1.0.0**: breaking changes require a new major version, and the moving tag `vX` points at the latest
   release of major version X, so projects can use `@v1`.

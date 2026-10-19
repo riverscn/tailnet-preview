@@ -42,6 +42,15 @@ fail() {
   die "$*"
 }
 
+# Something the PR comment should mention although the deploy succeeded: "<code>\t<detail>" (section 7).
+NOTICE_FILE=${TP_NOTICE_FILE:-}
+notice() {
+  local code=$1
+  shift
+  if [[ -n $NOTICE_FILE ]]; then printf '%s\t%s\n' "$code" "$*" >"$NOTICE_FILE"; fi
+  log "warning: $*"
+}
+
 # Registry access is retried: flaky links to Docker Hub reset connections independently of the code.
 RETRY_DELAY=${TP_RETRY_DELAY:-15}
 retry() {
@@ -404,10 +413,79 @@ run_task() {
 }
 
 # The tailnet issues HTTPS certificates only if they are enabled; then CertDomains lists the node's name.
+# A sidecar that is (re)starting reports no CertDomains yet, so wait until it runs before deciding.
 https_enabled() {
-  local status
-  status=$(compose_env "$1" exec -T ts tailscale status --json 2>/dev/null) || return 1
-  [[ $(tr -d ' \t\n' <<<"$status") == *'"CertDomains":["'* ]]
+  local status i
+  for ((i = 0; i < ${TP_LOGIN_TIMEOUT:-120} / 2; i++)); do
+    status=$(compose_env "$1" exec -T ts tailscale status --json 2>/dev/null) || status=''
+    status=$(tr -d ' \t\n' <<<"$status")
+    [[ $status == *'"BackendState":"Running"'* ]] && break
+    sleep 2
+  done
+  [[ $status == *'"CertDomains":["'* ]]
+}
+
+# Have the sidecar request its HTTPS certificate now instead of on the first visit, where a failure only
+# shows as a TLS error in the browser (docs/design.md section 7). tailscaled caches it, so serve uses it and
+# later deploys return at once. One attempt only: a retry publishes a new DNS record that Let's Encrypt
+# again validates at once, and spends one of its five failed validations per name and hour. Prints the
+# error, with Let's Encrypt's reason when it can be fetched, on failure.
+issue_cert() {
+  local name=$1 domain out order reason
+  domain=$(app_url "$name")
+  domain=${domain#https://}
+  # shellcheck disable=SC2016 # expanded by the container's shell
+  out=$(compose_env "$name" exec -T ts timeout "${TP_CERT_TIMEOUT:-180}" sh -c \
+    'tailscale cert --cert-file /tmp/tp.crt --key-file /tmp/tp.key "$1"; rc=$?; rm -f /tmp/tp.crt /tmp/tp.key; exit $rc' \
+    _ "$domain" 2>&1) && return 0
+  out=$(tail -n 1 <<<"$out")
+  # "order ... status: invalid" does not say why; the order's authorization does.
+  order=$(grep -oE 'https://acme[^ ]*/order/[0-9]+/[0-9]+' <<<"$out" | sed -n 1p) || true
+  if [[ -n $order ]]; then
+    reason=$(acme_reason "$name" "$order") || true
+    [[ -z $reason ]] || out="$reason"
+  fi
+  log "$name: certificate for $domain not issued: $out"
+  printf '%s' "${out:0:300}"
+  return 1
+}
+
+# Request the certificate again later, from a loop inside the sidecar so that it outlives the deploy job:
+# a few minutes later Tailscale's DNS record has usually propagated and a rate limit may have expired. The
+# delays (default 5, 20 and 45 minutes) stay within Let's Encrypt's five failed validations per hour. A new
+# deploy replaces the loop; the loop ends with the sidecar. Progress: /var/lib/tailscale/tp-cert-retry.log.
+retry_cert_later() {
+  local name=$1 domain
+  domain=$(app_url "$name")
+  domain=${domain#https://}
+  # shellcheck disable=SC2016,SC2086 # expanded by the container's shell; the delays are words
+  compose_env "$name" exec -d ts sh -c '
+    domain=$1; shift; log=/var/lib/tailscale/tp-cert-retry.log; pid=/tmp/tp-cert-retry.pid
+    [ -f $pid ] && kill "$(cat $pid)" 2>/dev/null
+    echo $$ >$pid
+    for delay in "$@"; do
+      echo "$(date -u +%FT%TZ) next attempt in ${delay}s" >>$log
+      sleep "$delay"
+      if out=$(tailscale cert --cert-file /tmp/tp.crt --key-file /tmp/tp.key "$domain" 2>&1); then
+        rm -f /tmp/tp.crt /tmp/tp.key $pid
+        echo "$(date -u +%FT%TZ) issued" >>$log
+        exit 0
+      fi
+      echo "$(date -u +%FT%TZ) failed: $(echo "$out" | tail -n 1)" >>$log
+    done
+    rm -f $pid
+    echo "$(date -u +%FT%TZ) gave up" >>$log' _ "$domain" ${TP_CERT_RETRY_DELAYS:-300 1200 2700} >&2
+}
+
+# The error of a failed Let's Encrypt order, from its public authorization; fetched by the sidecar, which
+# has network access and wget. Empty when it cannot be fetched.
+acme_reason() {
+  local name=$1 order=$2 json authz
+  json=$(compose_env "$name" exec -T ts wget -q -O - "$order" 2>/dev/null) || return 0
+  authz=$(grep -oE 'https://[^"]*/authz/[^"]*' <<<"$json" | sed -n 1p)
+  [[ -n $authz ]] || return 0
+  json=$(compose_env "$name" exec -T ts wget -q -O - "$authz" 2>/dev/null) || return 0
+  grep -oE '"detail": *"([^"\\]|\\.)*"' <<<"$json" | sed -n '1{s/^"detail": *"//;s/"$//;s/\\"/"/g;p}'
 }
 
 # Request the health path through the same upstream the sidecar proxies to; new backends need a moment.
@@ -534,6 +612,13 @@ cmd_deploy() {
   # The environment exists from here on (the next deploy upgrades it); only browsers cannot connect yet.
   https_enabled "$name" ||
     fail https "$name: the tailnet does not issue HTTPS certificates, browsers cannot open $(app_url "$name")"
+  # A missing certificate is a timing problem between Tailscale and Let's Encrypt, not the PR's: the deploy
+  # succeeds, the PR comment says so, and the sidecar keeps trying (docs/design.md section 7).
+  local cert_error
+  if ! cert_error=$(issue_cert "$name"); then
+    retry_cert_later "$name"
+    notice cert "$name: no HTTPS certificate yet for $(app_url "$name"): $cert_error"
+  fi
   log "$name: ready at $(app_url "$name")"
   app_url "$name" >&3
 }
@@ -637,7 +722,10 @@ cmd_doctor() {
   compose_env "$name" exec -T ts tailscale status --self --peers=false 2>&1 | redact || true
   echo "== https certificates"
   if https_enabled "$name"; then
-    echo "enabled for the tailnet"
+    echo "enabled for the tailnet; the sidecar's last certificate messages:"
+    grep -E 'cert\(|tls-cert' <<<"$(compose_env "$name" logs --no-color --no-log-prefix ts 2>&1)" | tail -n 4 || echo "(none)"
+    echo "background retries (after a failed request during deploy):"
+    compose_env "$name" exec -T ts tail -n 4 /var/lib/tailscale/tp-cert-retry.log 2>/dev/null || echo "(none)"
   else
     echo "NOT enabled for the tailnet (docs/troubleshooting.md)"
   fi
