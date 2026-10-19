@@ -175,6 +175,11 @@ runs:
         TP_CONFIG: ${{ github.workspace }}/${{ inputs.config }}
         ARGS: ${{ inputs.args }}
       run: |
+        # The checkout is the default branch: it must not end up in a PR environment (docs/design.md section 8).
+        if [[ $ARGS =~ ^[[:space:]]*(deploy|reset)[[:space:]]+pr- ]]; then
+          echo "::error::'$ARGS' would deploy the code of $GITHUB_REF into a PR environment. Run 'destroy pr-<n>' and re-run the PR's deploy job instead."
+          exit 1
+        fi
         # shellcheck disable=SC2086
         "$TP" $ARGS
 

@@ -10,6 +10,11 @@ All notable changes are documented here. The project follows [Semantic Versionin
   and fails with the new reason `cert` (with Let's Encrypt's error) instead of reporting "ready" while
   browsers fail the TLS handshake. `doctor` prints the sidecar's last certificate messages.
 
+### Fixed
+
+- The action's `run` command refuses `deploy pr-<n>` and `reset pr-<n>`, which would have deployed the
+  default branch's code into a PR environment.
+
 ## 0.1.0 - 2026-10-19
 
 First release. Until 1.0.0, a minor version may change the configuration, commands or action inputs: pin the

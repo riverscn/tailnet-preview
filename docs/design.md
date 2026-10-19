@@ -225,6 +225,10 @@ connections and a parallel pull aborts every image when one connection drops.
 | `nightly` | `schedule`                                                                   | Backs up the baseline, prunes environments of closed PRs and unused images                                                    |
 | `run`     | `workflow_dispatch`                                                          | Runs an engine command given in `args`, e.g. `reset main`                                                                     |
 
+`run` uses the code of the ref the workflow checked out, normally the default branch, so it refuses
+`deploy pr-<n>` and `reset pr-<n>`: they would put the default branch's code into a PR environment. To
+rebuild a PR environment, run `destroy pr-<n>` and re-run the PR's deploy job.
+
 The action locates its own scripts through `github.action_path`, so a workflow pinned to `@v0.1.0` runs
 exactly that version of the engine.
 
