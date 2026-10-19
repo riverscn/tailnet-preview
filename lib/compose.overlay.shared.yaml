@@ -1,0 +1,3 @@
+# Merged first for every environment while the host uses the shared ingress (TP_INGRESS=shared,
+# docs/design.md section 10): no sidecar; the ingress reaches the services over the environment's network.
+services: {}

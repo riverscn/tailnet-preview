@@ -35,7 +35,7 @@ jobs:
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: [self-hosted, preview]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # Other projects write `uses: riverscn/tailnet-preview@<version>`; this repository tests its own code.
       - id: preview
         uses: ./
@@ -50,7 +50,8 @@ jobs:
           MODE: ${{ steps.preview.outputs.mode }}
           TP_CONFIG: example/.tailnet-preview
         run: |
-          notes=$(bin/tailnet-preview compose "$ENV_NAME" exec -T ts wget -q -O - http://app:8080/notes)
+          # From the app's own container: there is no sidecar when the host uses the shared ingress.
+          notes=$(bin/tailnet-preview compose "$ENV_NAME" exec -T app wget -q -O - http://localhost:8080/notes)
           echo "$notes"
           case "$MODE" in
             forked) grep -qx 'main seeded' <<<"$notes" ;;
@@ -65,7 +66,7 @@ jobs:
     runs-on: [self-hosted, preview]
     steps:
       # The default branch's version: the PR branch may already be deleted.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
       - uses: ./
@@ -77,7 +78,7 @@ jobs:
     if: vars.PREVIEW_ENABLED == 'true' && github.event_name == 'schedule'
     runs-on: [self-hosted, preview]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./
         with:
           command: nightly
@@ -89,7 +90,7 @@ jobs:
     if: vars.PREVIEW_ENABLED == 'true' && github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, preview]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: ./
         with:
           command: run

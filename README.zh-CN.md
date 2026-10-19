@@ -39,8 +39,8 @@ pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）
 3. **加一个工作流** 调用这个 action：
 
    ```yaml
-   - uses: actions/checkout@v4
-   - uses: riverscn/tailnet-preview@v0.2.5
+   - uses: actions/checkout@v7
+   - uses: riverscn/tailnet-preview@v0.3.0
      with:
        command: deploy
        language: zh-CN # PR 评论用中文
@@ -65,9 +65,13 @@ pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）
 
 完整的故障排查表见 [docs/troubleshooting.md](docs/troubleshooting.md)。
 
+## 状态
+
+1.0 之前（0.x）：在它脱胎的多租户 SaaS 项目里日常使用，跑在一台家用主机上。次版本仍可能改变配置或行为，升级前看 [CHANGELOG](CHANGELOG.md)，并固定完整版本号。只支持 Linux 主机。
+
 ## 安全
 
-部署 PR 等于在主机上运行 PR 的代码，而 runner 用户在 `docker` 组里，相当于主机的 root。所以只适合私有仓库、推送权限受控的情况。来自 fork 仓库的 PR 一律不部署。建议用一台专用虚拟机做试用主机，也不要把真实的生产数据放进试用环境。详见 [docs/security.md](docs/security.md)。
+部署 PR 等于在主机上运行 PR 的代码，而 runner 用户在 `docker` 组里，相当于主机的 root。所以只适合私有仓库、推送权限受控的情况。来自 fork 仓库的 PR 一律不部署（action 自己也会拒绝）。公开仓库还需要单独设置 self-hosted runner，否则 fork 的 PR 可以改掉工作流里的条件，在主机上运行代码。建议用一台专用虚拟机做试用主机，也不要把真实的生产数据放进试用环境。详见 [docs/security.md](docs/security.md)。
 
 ## 许可证
 

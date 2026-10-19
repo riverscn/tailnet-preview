@@ -86,8 +86,8 @@ non-alphanumerics replaced by `-`), so projects never collide:
 | Tailscale node                  | `<project>-<env>`; the baseline's node is persistent, PR nodes are ephemeral               |
 | Backups                         | `~/previews/<project>/backups/main-<timestamp>/<volume>.tar.gz`, the newest `KEEP_BACKUPS` |
 
-Machine-wide configuration lives in `~/.config/tailnet-preview/env` and currently holds only
-`TS_OAUTH_SECRET` (and optionally `TS_TAGS`). A repository secret `TS_OAUTH_SECRET`, when set, takes
+Machine-wide configuration lives in `~/.config/tailnet-preview/env`: `TS_OAUTH_SECRET`, optionally
+`TS_TAGS`, and the shared ingress's settings (section 10.5), whose state lives in `~/previews/.ingress/`. A repository secret `TS_OAUTH_SECRET`, when set, takes
 precedence.
 
 All state-changing commands of a project are serialized with `flock` on `~/previews/<project>/.lock`.
@@ -207,7 +207,15 @@ tailnet does not issue HTTPS certificates. The deploy fails so that the PR says 
 check waits until the sidecar runs: a sidecar that is (re)starting reports no certificate domains yet.
 
 A deploy that succeeds can still leave something the PR should mention: the engine writes
-`<code><TAB><detail>` to `TP_NOTICE_FILE` and the comment adds it to "ready". The only notice is `cert`.
+a line `<code><TAB><detail>` per notice to `TP_NOTICE_FILE` and the comment adds them to "ready". The
+notices are `hostname` and `cert`.
+
+`hostname`: the tailnet already has a device with the environment's name (`<project>-<env>`), usually a node
+of an earlier environment that never logged out, so Tailscale named this one with a suffix (`-1`). The
+environment works under that address, which the engine reads from the node on every deploy, but not
+under the one people expect; `doctor` warns too.
+
+`cert`:
 Tailscale requests a node's certificate on the first visit, where a failure only shows as a TLS error in
 the browser, so the deploy requests it once the health check passes, waiting at most a minute
 (`TP_CERT_TIMEOUT`). A new deploy supersedes the previous one: it first stops the previous retry loop and any
@@ -235,14 +243,14 @@ directory on every change and exits on a half-written file. Once a name has fail
 failures. The engine reads that time from the sidecar's log: a deploy does not request then, and the loop
 first waits until it has passed. Tailscale itself can fail before Let's Encrypt is asked, when setting the
 validation record times out (`SetDNS ... context deadline exceeded`); the loop treats it like any failure.
-Per-node certificates remain the weak point of this design.
+Per-node certificates remain the weak point of this design; the shared ingress (section 10) avoids them.
 
 Pulls from the image registry are retried, one image at a time, because flaky links to Docker Hub reset
 connections and a parallel pull aborts every image when one connection drops.
 
 ## 8. The action
 
-`uses: riverscn/tailnet-preview@v0.2.5` with `command`:
+`uses: riverscn/tailnet-preview@v0.3.0` with `command`:
 
 | `command` | Typical trigger                                                              | Does                                                                                                                          |
 | --------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
@@ -258,7 +266,7 @@ rebuild a PR environment, run `destroy pr-<n>` and re-run the PR's deploy job.
 The diagnostics, the PR comment and the job result run after a failed deploy, but not after a cancelled
 one: a newer push that cancels the job updates the comment itself.
 
-The action locates its own scripts through `github.action_path`, so a workflow pinned to `@v0.2.5` runs
+The action locates its own scripts through `github.action_path`, so a workflow pinned to `@v0.3.0` runs
 exactly that version of the engine.
 
 ## 9. Versioning
@@ -268,7 +276,147 @@ inputs. Releases are tagged `vX.Y.Z` by the Release workflow (`.github/workflows
 notes of that version in `CHANGELOG.md`.
 
 - **0.x** (now): the interface is still settling as the first projects adopt it. A minor version may break
-  it, so projects pin the full version (`@v0.2.5`). There is no moving `v0` tag, and releases are marked as
+  it, so projects pin the full version (`@v0.3.0`). There is no moving `v0` tag, and releases are marked as
   pre-releases.
 - **From 1.0.0**: breaking changes require a new major version, and the moving tag `vX` points at the latest
   release of major version X, so projects can use `@v1`.
+
+## 10. Shared ingress: one per host, one wildcard certificate
+
+Status: source B (own domain) implemented as `TP_INGRESS=shared`, opt-in per host; source A (Tailscale's
+own wildcard) waits for Tailscale (10.3). The per-environment sidecar (`TP_INGRESS=sidecar`) stays the
+default until `shared` has run on a real host for a while.
+
+### 10.1 Why
+
+Every environment is its own Tailscale node with its own name, so every environment needs its own
+certificate, issued while the deploy runs. That is the part that keeps failing, and it is not under our
+control:
+
+- **Validation races Tailscale's DNS.** Tailscale's `set-dns` returns after about 30 seconds and Let's
+  Encrypt validates within a second; often the record has not reached every ts.net name server yet
+  (`NXDOMAIN`, or `Incorrect TXT record` while older values are visible). Others see the same:
+  [tailscale/tailscale#21759](https://github.com/tailscale/tailscale/issues/21759) (open), and a tailnet
+  where issuance failed for ten hours and recovered by itself
+  ([#20823](https://github.com/tailscale/tailscale/issues/20823)). On our host in October 2026, PR
+  environments and the baseline often got their certificate only on the second or third attempt; section 7
+  describes how the engine copes.
+- **Limits per name and per tailnet.** Five failed validations per name and hour, then the name is refused
+  for up to an hour. And because `ts.net` is on the Public Suffix List, Let's Encrypt's 50 new certificates
+  per registered domain and week apply **per tailnet**: every new PR environment, every recreated one and
+  every other node with HTTPS draws on them. Nodes that serve only plain HTTP draw on them too, until a fix planned for Tailscale 1.106 ([#21693](https://github.com/tailscale/tailscale/issues/21693)).
+- **Every environment name is published** in the Certificate Transparency logs (`myapp-pr-42.<tailnet>.ts.net`),
+  and a name reused by a new node can trip browsers' CT checks for a while
+  ([#15702](https://github.com/tailscale/tailscale/issues/15702)).
+- **Side effects of one node per environment:** name collisions (`-1` suffixes), a retry loop in every
+  sidecar, and a device in the admin console per environment.
+
+A certificate that is issued once per host and renewed every two months, outside any deploy, removes all
+of these at once.
+
+### 10.2 The design
+
+One **ingress** per host instead of one sidecar per environment:
+
+```
+browser ──https://myapp-pr-42.preview.example.com──▶ ingress: Tailscale node, kernel mode (tag:preview)
+            ▲                                           │  Traefik on <ingress IP>:443 (and PORTS)
+            │ split DNS: preview.example.com            │  CoreDNS on <ingress IP>:53
+            └── CoreDNS answers *.preview… → ingress IP │
+                                                        ▼ route by host name, over each environment's network
+                                         myapp-pr-42-web-1:80        myapp-main-web-1:80 …
+```
+
+- **Addresses** are `<project>-<env>.<TP_INGRESS_DOMAIN>`, known before anything starts; one wildcard
+  certificate `*.<TP_INGRESS_DOMAIN>` covers every environment of every project on the host.
+- **The ingress** is one compose project per host (`tailnet-preview-ingress`, files in
+  `~/previews/.ingress`): a Tailscale node, persistent, in **kernel mode** (`/dev/net/tun`, `NET_ADMIN`), and
+  Traefik and CoreDNS in its network namespace. Kernel mode, because the tailnet's split DNS needs UDP on
+  port 53, which `tailscale serve` cannot forward; and tailscaled's own serve cannot route subdomains anyway
+  (it asks Let's Encrypt for the exact SNI name and rejects names below the node's own,
+  `resolveCertDomain`). Every deploy brings it up to date, so it follows the newest engine on the host.
+- **Traefik** listens on the ingress's **tailnet address only**: environments are connected to the ingress
+  but cannot use it to reach each other. Entry points: 443, plus every port in a project's `PORTS` (a new
+  port restarts Traefik once). Routes come from one file per environment in `routes/`, which Traefik
+  watches. The certificate comes from Let's Encrypt by DNS-01 through the DNS provider's API. Before
+  Let's Encrypt is asked, lego waits until every authoritative name server has the record (it finds them
+  through the host's resolver, or `TP_INGRESS_DNS_RESOLVERS`): the race that
+  per-node certificates lose. Some networks (bot-dev's, at first) intercept every DNS query on port 53 and
+  answer from a cache that remembers the record as missing, so nothing can be checked from the host: the
+  ingress detects that (a query to 192.0.2.1, where no server runs, gets an answer) and waits a fixed time
+  instead (`TP_INGRESS_DNS_DELAY`, default 60 seconds then); Let's Encrypt validates from its own
+  resolvers.
+- **CoreDNS** answers every name under the domain with the ingress's tailnet address, on that address
+  only. The tailnet's split DNS sends the domain to it, so names resolve inside the tailnet, never through
+  the local network's resolver. Public DNS has no record: resolvers and routers with DNS rebinding
+  protection (OpenWrt's default, for one) drop public answers that point to private or CGNAT addresses.
+- **Reaching the environments:** the deploy connects the ingress to the networks of the `HTTP` and `PORTS`
+  services (`docker network connect`) and writes the routes; the upstream is the container's compose name,
+  `<project>-<env>-<service>-1`. The health check goes through Traefik over HTTPS, so a deploy returns only
+  once the address answers. Destroy removes the route and disconnects the ingress, so compose can remove
+  the network.
+- **The project configuration does not change.** `HTTP`, `PORTS` and `TP_URL` keep their meaning; only
+  the value of `TP_URL` changes.
+
+### 10.3 Where the wildcard certificate comes from
+
+|                 | A. Tailscale wildcard                                                                                                                                                                                                        | B. Own domain (implemented)                              |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| Name            | `*.preview.<tailnet>.ts.net`                                                                                                                                                                                                 | `*.preview.example.com`                                  |
+| Issued by       | `tailscale cert '*.preview.<tailnet>.ts.net'` on the ingress node                                                                                                                                                            | Traefik, DNS-01 through the DNS provider's API           |
+| Name resolution | MagicDNS answers subdomains of the node with the node attribute `dns-subdomain-resolve`                                                                                                                                      | CoreDNS on the ingress, through the tailnet's split DNS  |
+| Needs           | `nodeAttrs` granting `dns-subdomain-resolve` to `tag:preview`                                                                                                                                                                | A domain, a DNS API token on the host, a split DNS entry |
+| Available       | **Not yet.** Clients support it since 1.96 ([#1196](https://github.com/tailscale/tailscale/issues/1196)), but Tailscale's hosted control plane does not grant the attribute yet: our nodes' `CapMap` lacks it (October 2026) | Now                                                      |
+
+A remains the goal: no domain, no token, nothing outside Tailscale. When Tailscale grants the attribute,
+A replaces Traefik's DNS-01 and CoreDNS; the routing stays.
+
+### 10.4 What gets better, what it costs
+
+Better:
+
+- No certificate work during a deploy: no notice `cert`, no retry loop, no rate limits. A new environment
+  answers over HTTPS as soon as it is healthy.
+- One certificate per host instead of one per environment: far below the weekly limit, and the
+  Certificate Transparency logs show only `*.<TP_INGRESS_DOMAIN>`, not every environment's name.
+- One Tailscale device per host: no ephemeral nodes, no `-1` suffixes.
+
+Costs:
+
+- **A host-level component.** If the ingress stops, every environment on the host is unreachable
+  (environments keep running); `doctor` shows its state. Containers restart with Docker.
+- **Coarser access control.** All environments sit behind one node, so the tailnet policy can no longer
+  let a device into one environment but not another. Every environment carried `tag:preview` before too.
+- **The ingress can reach every environment.** It is connected to all their networks; it runs images from
+  the tailnet-preview release (Tailscale, Traefik, CoreDNS), never from a PR.
+- **Addresses change once** when a host switches; links, OAuth callback URLs and the like registered for
+  previews must be updated.
+- **A DNS token on the host** can change that domain's records; scope it to the one zone and to DNS edits.
+
+### 10.5 Settings and migration
+
+Host settings, in `~/.config/tailnet-preview/env` (or the environment):
+
+| Setting                    | Meaning                                                                                                                                                        |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TP_INGRESS`               | `sidecar` (default) or `shared`                                                                                                                                |
+| `TP_INGRESS_DOMAIN`        | e.g. `preview.example.com`; environments are `<project>-<env>.<domain>`                                                                                        |
+| `TP_INGRESS_DNS_PROVIDER`  | The DNS provider's name in Traefik/lego, e.g. `cloudflare`, `alidns`, `tencentcloud`. Without it Traefik serves a self-signed certificate (the tests use that) |
+| `TP_INGRESS_DNS_ENV`       | Names of the variables holding the provider's credentials, e.g. `CF_DNS_API_TOKEN`; their values are set in the same file                                      |
+| `TP_INGRESS_ACME_EMAIL`    | Let's Encrypt's contact address; required with a provider                                                                                                      |
+| `TP_INGRESS_DNS_RESOLVERS` | Resolvers lego uses to find the authoritative servers, e.g. `223.5.5.5:53`; default the host's                                                                 |
+| `TP_INGRESS_DNS_DELAY`     | Seconds to wait instead of checking; set automatically to 60 when the network intercepts DNS                                                                   |
+| `TP_INGRESS_ACME_CA`       | Optional ACME directory, e.g. Let's Encrypt's staging                                                                                                          |
+| `TP_INGRESS_HOSTNAME`      | The ingress's Tailscale name; default `tailnet-preview-<host>`                                                                                                 |
+
+Switching a host: prepare the tailnet (split DNS, policy for port 53) and the settings
+([host-setup.md](host-setup.md)), then redeploy each environment. A redeploy in shared mode logs the
+environment's sidecar out and removes it and its state; switching back removes the route.
+
+If `shared` proves itself, it becomes the default, and the sidecar with everything in section 7 about
+certificates goes in a later minor version.
+
+### 10.6 Open questions
+
+- Whether to ask Tailscale for `dns-subdomain-resolve` on the hosted control plane, or wait for it.
+- Several hosts in one tailnet each need their own domain (or subdomain) and split DNS entry.

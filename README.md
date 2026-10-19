@@ -51,8 +51,8 @@ and copies the volumes you list in `DATA_VOLUMES`. Details: [docs/design.md](doc
 3. **Add a workflow** that calls the action:
 
    ```yaml
-   - uses: actions/checkout@v4
-   - uses: riverscn/tailnet-preview@v0.2.5
+   - uses: actions/checkout@v7
+   - uses: riverscn/tailnet-preview@v0.3.0
      with:
        command: deploy
    ```
@@ -88,9 +88,11 @@ All commands: [docs/design.md](docs/design.md#6-commands).
 
 ## Status
 
-Early: version 1, extracted from a multi-tenant SaaS project where it runs on a home server. Linux hosts
-only. Pull requests from forks are never deployed (that would run untrusted code on your host); see
-[docs/security.md](docs/security.md).
+Pre-1.0 (0.x): in daily use by the multi-tenant SaaS project it was extracted from, on a home server.
+Minor versions may still change configuration or behaviour; read the [changelog](CHANGELOG.md) before
+upgrading and pin the full version. Linux hosts only. For private repositories, or public ones with care:
+pull requests from forks are never deployed (that would run untrusted code on your host), and a public
+repository needs settings of its own for its self-hosted runner; see [docs/security.md](docs/security.md).
 
 ## Contributing
 

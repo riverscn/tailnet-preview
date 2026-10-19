@@ -43,8 +43,15 @@ runs:
         COMMAND: ${{ inputs.command }}
         EVENT: ${{ github.event_name }}
         PR: ${{ github.event.pull_request.number }}
+        HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
+        # Deploying runs the PR's code on the host: never for a fork, whatever the workflow's condition says
+        # (docs/security.md).
+        if [[ $COMMAND == deploy && -n $PR && $HEAD_REPO != "$GITHUB_REPOSITORY" ]]; then
+          echo "::error::tailnet-preview does not deploy pull requests from forks ($HEAD_REPO): that would run their code on the preview host"
+          exit 1
+        fi
         case "$COMMAND" in
           deploy | destroy)
             if [[ -n $PR ]]; then name=pr-$PR
@@ -122,7 +129,7 @@ runs:
         [[ $code != 0 ]] || echo "### Preview ready: $url" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Diagnostics
-      if: ${{ !cancelled() && inputs.command == 'deploy' && steps.deploy.outputs.code != '3' }}
+      if: ${{ !cancelled() && steps.env.outcome == 'success' && inputs.command == 'deploy' && steps.deploy.outputs.code != '3' }}
       shell: bash
       env:
         TP: ${{ github.action_path }}/bin/tailnet-preview
@@ -146,7 +153,7 @@ runs:
     - name: Open pull requests
       id: open
       if: inputs.command == 'nightly'
-      uses: actions/github-script@v7
+      uses: actions/github-script@v9
       with:
         github-token: ${{ inputs.github-token }}
         result-encoding: string
@@ -185,8 +192,8 @@ runs:
         "$TP" $ARGS
 
     - name: Pull request comment
-      if: ${{ !cancelled() && github.event.pull_request.number && (inputs.command == 'destroy' || inputs.command == 'deploy') }}
-      uses: actions/github-script@v7
+      if: ${{ !cancelled() && steps.env.outcome == 'success' && github.event.pull_request.number && (inputs.command == 'destroy' || inputs.command == 'deploy') }}
+      uses: actions/github-script@v9
       env:
         COMMENT_JS: ${{ github.action_path }}/lib/comment.cjs
         CONFIG_DIR: ${{ github.workspace }}/${{ inputs.config }}
@@ -209,14 +216,17 @@ runs:
           const config = read(`${env.CONFIG_DIR}/config.env`)
           const ports = (config.match(/^PORTS=(.*)$/m)?.[1] ?? '').trim().replace(/^(["'])(.*)\1$/, '$2')
           const [reason, detail] = read(env.FAILURE_FILE).trim().split('\t')
-          const [notice, noticeDetail] = read(env.NOTICE_FILE).trim().split('\t')
+          const notices = read(env.NOTICE_FILE).split('\n').filter(Boolean).map((line) => {
+            const [code, ...detail] = line.split('\t')
+            return { code, detail: detail.join('\t') }
+          })
           const data = { language: env.LANGUAGE, sha: env.SHA, url: env.URL, mode: env.MODE, ports,
-            extra: read(`${env.CONFIG_DIR}/comment.md`), runUrl: env.RUN_URL, reason, detail, notice, noticeDetail }
+            extra: read(`${env.CONFIG_DIR}/comment.md`), runUrl: env.RUN_URL, reason, detail, notices }
           const kind = env.COMMAND === 'destroy' ? 'destroyed' : env.CODE === '0' ? 'ready' : env.CODE === '3' ? 'limit' : 'failed'
           await upsert({ github, context, issueNumber: context.payload.pull_request.number, body: render(kind, data) })
 
     - name: Result
-      if: ${{ !cancelled() && inputs.command == 'deploy' }}
+      if: ${{ !cancelled() && steps.env.outcome == 'success' && inputs.command == 'deploy' }}
       shell: bash
       env:
         CODE: ${{ steps.deploy.outputs.code }}

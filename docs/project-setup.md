@@ -72,7 +72,8 @@ permissions:
 
 jobs:
   deploy:
-    # Pull requests from forks are never deployed: deploying runs the PR's code on the host.
+    # Pull requests from forks are never deployed: deploying runs the PR's code on the host. The action
+    # refuses them too; in a public repository see docs/security.md first.
     if: >-
       vars.PREVIEW_ENABLED == 'true' && (github.event_name == 'push' ||
       (github.event_name == 'pull_request' && github.event.action != 'closed' &&
@@ -83,8 +84,8 @@ jobs:
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     runs-on: [self-hosted, preview]
     steps:
-      - uses: actions/checkout@v4
-      - uses: riverscn/tailnet-preview@v0.2.5
+      - uses: actions/checkout@v7
+      - uses: riverscn/tailnet-preview@v0.3.0
         with:
           command: deploy
         env:
@@ -96,10 +97,10 @@ jobs:
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, preview]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
-      - uses: riverscn/tailnet-preview@v0.2.5
+      - uses: riverscn/tailnet-preview@v0.3.0
         with:
           command: destroy
 
@@ -107,8 +108,8 @@ jobs:
     if: vars.PREVIEW_ENABLED == 'true' && github.event_name == 'schedule'
     runs-on: [self-hosted, preview]
     steps:
-      - uses: actions/checkout@v4
-      - uses: riverscn/tailnet-preview@v0.2.5
+      - uses: actions/checkout@v7
+      - uses: riverscn/tailnet-preview@v0.3.0
         with:
           command: nightly
         env:
@@ -118,8 +119,8 @@ jobs:
     if: vars.PREVIEW_ENABLED == 'true' && github.event_name == 'workflow_dispatch'
     runs-on: [self-hosted, preview]
     steps:
-      - uses: actions/checkout@v4
-      - uses: riverscn/tailnet-preview@v0.2.5
+      - uses: actions/checkout@v7
+      - uses: riverscn/tailnet-preview@v0.3.0
         with:
           command: run
           args: ${{ inputs.args }}
