@@ -200,10 +200,16 @@ When the engine recognizes the cause of a failure it writes `<code><TAB><detail>
 (the action sets it to `$RUNNER_TEMP/tailnet-preview-failure`). The PR comment turns the code into a cause
 and the steps to fix it (`lib/comment.cjs`, `REASONS`), matching the table in
 [troubleshooting.md](troubleshooting.md). Codes: `config`, `registry`, `build`, `ts_secret`, `ts_login`,
-`https`, `fork`, `migrate`, `seed`, `health`.
+`https`, `cert`, `fork`, `migrate`, `seed`, `health`.
 
-`https` is special: the environment was created and is kept, but browsers cannot connect because the
-tailnet does not issue HTTPS certificates. The deploy fails so that the PR says so instead of "ready".
+`https` and `cert` are special: the environment was created and is kept, but browsers cannot connect.
+`https`: the tailnet does not issue HTTPS certificates. `cert`: it does, but the node's certificate was not
+issued. Tailscale would request it on the first visit and a failure would only show as a TLS error in the
+browser, so the deploy requests it once the health check passes. Let's Encrypt rejects the order when
+Tailscale's DNS validation record has not reached public DNS yet ("Incorrect TXT record"); the engine waits
+a minute and tries once more. It does not retry `rateLimited` answers: Let's Encrypt allows five failed
+validations per name and hour, and browsers opening the address spend them too. The deploy fails so that
+the PR says so instead of "ready".
 
 Pulls from the image registry are retried, one image at a time, because flaky links to Docker Hub reset
 connections and a parallel pull aborts every image when one connection drops.

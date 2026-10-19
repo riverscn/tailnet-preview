@@ -21,6 +21,16 @@ test('ready lists the URL, extra ports, the mode and the project text', () => {
 })
 
 test('failed gives cause, detail and numbered steps; unknown causes point to the logs', () => {
+  for (const language of ['en', 'zh-CN']) {
+    const cert = render('failed', {
+      language,
+      runUrl: 'https://run',
+      reason: 'cert',
+      detail: 'pr-1: Incorrect TXT record',
+    })
+    assert.match(cert, /tailscale cert/)
+    assert.match(cert, /Incorrect TXT record/)
+  }
   const body = render('failed', { runUrl: 'https://run', reason: 'https', detail: 'pr-1: x' })
   assert.match(body, /\*\*Cause:\*\* .*HTTPS certificates.*\(pr-1: x\)/)
   assert.match(body, /1\. .*Enable HTTPS/)

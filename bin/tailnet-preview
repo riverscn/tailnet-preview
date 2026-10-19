@@ -410,6 +410,28 @@ https_enabled() {
   [[ $(tr -d ' \t\n' <<<"$status") == *'"CertDomains":["'* ]]
 }
 
+# Have the sidecar request its HTTPS certificate now instead of on the first visit, where a failure only
+# shows as a TLS error in the browser (docs/design.md section 7). tailscaled caches it, so serve uses it and
+# later deploys return at once. Prints the last line of the error on failure.
+issue_cert() {
+  local name=$1 domain out i
+  domain=$(app_url "$name")
+  domain=${domain#https://}
+  for i in 1 2; do
+    # shellcheck disable=SC2016 # expanded by the container's shell
+    out=$(compose_env "$name" exec -T ts timeout "${TP_CERT_TIMEOUT:-180}" sh -c \
+      'tailscale cert --cert-file /tmp/tp.crt --key-file /tmp/tp.key "$1"; rc=$?; rm -f /tmp/tp.crt /tmp/tp.key; exit $rc' \
+      _ "$domain" 2>&1) && return 0
+    out=$(tail -n 1 <<<"$out")
+    log "$name: certificate for $domain not issued (attempt $i): $out"
+    # Let's Encrypt counts failed validations: do not spend another one on a rate limit.
+    [[ $out != *rateLimited* && $i == 1 ]] || break
+    sleep "${TP_CERT_RETRY_DELAY:-60}"
+  done
+  printf '%s' "${out:0:300}"
+  return 1
+}
+
 # Request the health path through the same upstream the sidecar proxies to; new backends need a moment.
 wait_healthy() {
   local name=$1 i svc
@@ -534,6 +556,8 @@ cmd_deploy() {
   # The environment exists from here on (the next deploy upgrades it); only browsers cannot connect yet.
   https_enabled "$name" ||
     fail https "$name: the tailnet does not issue HTTPS certificates, browsers cannot open $(app_url "$name")"
+  local cert_error
+  cert_error=$(issue_cert "$name") || fail cert "$name: no HTTPS certificate for $(app_url "$name"): $cert_error"
   log "$name: ready at $(app_url "$name")"
   app_url "$name" >&3
 }
@@ -637,7 +661,8 @@ cmd_doctor() {
   compose_env "$name" exec -T ts tailscale status --self --peers=false 2>&1 | redact || true
   echo "== https certificates"
   if https_enabled "$name"; then
-    echo "enabled for the tailnet"
+    echo "enabled for the tailnet; the sidecar's last certificate messages:"
+    grep -E 'cert\(|tls-cert' <<<"$(compose_env "$name" logs --no-color --no-log-prefix ts 2>&1)" | tail -n 4 || echo "(none)"
   else
     echo "NOT enabled for the tailnet (docs/troubleshooting.md)"
   fi

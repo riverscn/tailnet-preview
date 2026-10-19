@@ -7,7 +7,7 @@ REPO=$(cd "$(dirname "$0")/.." && pwd)
 WORK=$(mktemp -d)
 export TP_HOME=$WORK/home TP_PROJECT=tp-itest TP_SOURCE=$REPO TP_CONFIG=$REPO/example/.tailnet-preview
 export TS_OAUTH_SECRET=tskey-client-fake TP_TS_IMAGE=tp-fake-tailscale:test TP_FAILURE_FILE=$WORK/failure
-export TP_RETRY_DELAY=1 TP_HOST_CONFIG=$WORK/no-host-config
+export TP_RETRY_DELAY=1 TP_CERT_RETRY_DELAY=1 TP_HOST_CONFIG=$WORK/no-host-config
 TP=$REPO/bin/tailnet-preview
 TAG=itest$(date +%s)
 PASSED=0
@@ -158,6 +158,26 @@ expect_reason https "reason https"
 run has pr-2
 expect_rc 0 "environment kept without HTTPS"
 "$TP" compose pr-2 exec -T ts rm /var/lib/tailscale/no-https
+
+cert_requests() { wc -l <<<"$("$TP" compose pr-2 exec -T ts cat /var/lib/tailscale/cert-requests)"; }
+grep -q 'cert --cert-file' <<<"$("$TP" compose pr-2 exec -T ts cat /var/lib/tailscale/cert-requests)" ||
+  fatal "deploy requests the certificate"
+ok "deploy requests the certificate"
+"$TP" compose pr-2 exec -T ts sh -c ': >/var/lib/tailscale/cert-requests; touch /var/lib/tailscale/cert-invalid'
+run deploy pr-2 --tag "$TAG"
+expect_rc 1 "deploy without a certificate fails"
+expect_reason cert "reason cert"
+grep -q 'Incorrect TXT record' "$TP_FAILURE_FILE" || fatal "reason cert carries Let's Encrypt's error"
+[[ $(cert_requests) == 2 ]] || fatal "an invalid order is retried once, got $(cert_requests) requests"
+ok "an invalid order is retried once"
+"$TP" compose pr-2 exec -T ts sh -c ': >/var/lib/tailscale/cert-requests; mv /var/lib/tailscale/cert-invalid /var/lib/tailscale/cert-ratelimited'
+run deploy pr-2 --tag "$TAG"
+expect_reason cert "reason cert when rate limited"
+[[ $(cert_requests) == 1 ]] || fatal "a rate limit is not retried, got $(cert_requests) requests"
+ok "a rate limit is not retried"
+run has pr-2
+expect_rc 0 "environment kept without a certificate"
+"$TP" compose pr-2 exec -T ts rm /var/lib/tailscale/cert-ratelimited
 
 limited=$(variant limited) && echo 'MAX_ENVS=2' >>"$limited/config.env"
 TP_CONFIG=$limited run deploy pr-3 --tag "$TAG"
