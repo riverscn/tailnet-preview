@@ -4,6 +4,21 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+## 0.2.5 - 2026-10-19
+
+### Fixed
+
+- Browser visits no longer use up Let's Encrypt's five failed validations per hour. tailscaled requests a
+  certificate on every TLS handshake, hourly and at start-up while HTTPS is configured without one; the
+  sidecar now serves HTTPS only once it has the certificate (the serve configuration is copied to
+  `TS_SERVE_CONFIG` in the state volume then), and nothing before.
+- No certificate request within `TP_CERT_MIN_GAP` (default 6 minutes) of a failed one, by the deploy or the
+  retry loop: Let's Encrypt still sees the validation record as missing (`NXDOMAIN` is cached for up to the
+  5-minute negative TTL of ts.net), so such a request failed the same way. The first retry moves from 5 to 6
+  minutes.
+- The reason of a failed order (`NXDOMAIN`, `Incorrect TXT record`) is shown again when the order is not on
+  the last line of tailscale's output.
+
 ## 0.2.4 - 2026-10-19
 
 ### Changed

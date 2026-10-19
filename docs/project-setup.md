@@ -84,7 +84,7 @@ jobs:
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v4
-      - uses: riverscn/tailnet-preview@v0.2.4
+      - uses: riverscn/tailnet-preview@v0.2.5
         with:
           command: deploy
         env:
@@ -99,7 +99,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.repository.default_branch }}
-      - uses: riverscn/tailnet-preview@v0.2.4
+      - uses: riverscn/tailnet-preview@v0.2.5
         with:
           command: destroy
 
@@ -108,7 +108,7 @@ jobs:
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v4
-      - uses: riverscn/tailnet-preview@v0.2.4
+      - uses: riverscn/tailnet-preview@v0.2.5
         with:
           command: nightly
         env:
@@ -119,7 +119,7 @@ jobs:
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v4
-      - uses: riverscn/tailnet-preview@v0.2.4
+      - uses: riverscn/tailnet-preview@v0.2.5
         with:
           command: run
           args: ${{ inputs.args }}
