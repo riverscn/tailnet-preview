@@ -4,6 +4,8 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+## 0.2.2 - 2026-10-19
+
 ### Fixed
 
 - A new deploy also stops a certificate request still running in the sidecar, not only the previous retry
