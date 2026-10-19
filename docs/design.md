@@ -332,7 +332,7 @@ browser ──https://myapp-pr-42.preview.example.com──▶ ingress: Tailscal
   port restarts Traefik once). Routes come from one file per environment in `routes/`, which Traefik
   watches. The certificate comes from Let's Encrypt by DNS-01 through the DNS provider's API. Before
   Let's Encrypt is asked, lego waits until every authoritative name server and public resolvers
-  (`TP_INGRESS_DNS_RESOLVERS`, default 1.1.1.1 and 8.8.8.8) have the record: the race that per-node
+  (`TP_INGRESS_DNS_RESOLVERS`, default 1.1.1.1, 8.8.8.8, 223.5.5.5 and 119.29.29.29, of which those that answer from the host) have the record: the race that per-node
   certificates lose. Not the host's resolver, which may still cache the name as missing. Some networks
   (bot-dev's, for one) intercept every DNS query on port 53 and answer from such a cache, so nothing can be
   checked from the host: the ingress detects that (a query to 192.0.2.1, where no server runs, gets an
@@ -396,7 +396,7 @@ Host settings, in `~/.config/tailnet-preview/env` (or the environment):
 | `TP_INGRESS_DNS_PROVIDER`  | The DNS provider's name in Traefik/lego, e.g. `cloudflare`, `alidns`, `tencentcloud`. Without it Traefik serves a self-signed certificate (the tests use that) |
 | `TP_INGRESS_DNS_ENV`       | Names of the variables holding the provider's credentials, e.g. `CF_DNS_API_TOKEN`; their values are set in the same file                                      |
 | `TP_INGRESS_ACME_EMAIL`    | Let's Encrypt's contact address; required with a provider                                                                                                      |
-| `TP_INGRESS_DNS_RESOLVERS` | Resolvers that must see the validation record first; default `1.1.1.1:53 8.8.8.8:53`                                                                           |
+| `TP_INGRESS_DNS_RESOLVERS` | Candidate resolvers that must see the validation record first, used if they answer from the host; default `1.1.1.1:53 8.8.8.8:53 223.5.5.5:53 119.29.29.29:53` |
 | `TP_INGRESS_DNS_DELAY`     | Seconds to wait instead of checking; set automatically to 60 when the network intercepts DNS                                                                   |
 | `TP_INGRESS_ACME_CA`       | Optional ACME directory, e.g. Let's Encrypt's staging                                                                                                          |
 | `TP_INGRESS_HOSTNAME`      | The ingress's Tailscale name; default `tailnet-preview-<host>`                                                                                                 |
