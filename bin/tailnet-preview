@@ -404,10 +404,16 @@ run_task() {
 }
 
 # The tailnet issues HTTPS certificates only if they are enabled; then CertDomains lists the node's name.
+# A sidecar that is (re)starting reports no CertDomains yet, so wait until it runs before deciding.
 https_enabled() {
-  local status
-  status=$(compose_env "$1" exec -T ts tailscale status --json 2>/dev/null) || return 1
-  [[ $(tr -d ' \t\n' <<<"$status") == *'"CertDomains":["'* ]]
+  local status i
+  for ((i = 0; i < ${TP_LOGIN_TIMEOUT:-120} / 2; i++)); do
+    status=$(compose_env "$1" exec -T ts tailscale status --json 2>/dev/null) || status=''
+    status=$(tr -d ' \t\n' <<<"$status")
+    [[ $status == *'"BackendState":"Running"'* ]] && break
+    sleep 2
+  done
+  [[ $status == *'"CertDomains":["'* ]]
 }
 
 # Have the sidecar request its HTTPS certificate now instead of on the first visit, where a failure only

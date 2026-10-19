@@ -159,6 +159,11 @@ run has pr-2
 expect_rc 0 "environment kept without HTTPS"
 "$TP" compose pr-2 exec -T ts rm /var/lib/tailscale/no-https
 
+# A sidecar that restarted and is still logging in is not a tailnet without HTTPS certificates.
+"$TP" compose pr-2 exec -T ts sh -c 'echo 1 3 >/var/lib/tailscale/starting' # Running for resolve_url, then restarting
+run deploy pr-2 --tag "$TAG"
+expect_rc 0 "deploy waits for a sidecar that is still logging in"
+
 cert_requests() { wc -l <<<"$("$TP" compose pr-2 exec -T ts cat /var/lib/tailscale/cert-requests)"; }
 grep -q 'cert --cert-file' <<<"$("$TP" compose pr-2 exec -T ts cat /var/lib/tailscale/cert-requests)" ||
   fatal "deploy requests the certificate"
