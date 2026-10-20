@@ -29,6 +29,7 @@ All notable changes are documented here. The project follows [Semantic Versionin
   who does each step (the person, the agent, or the agent after asking), a check for every step, and the
   rule that secrets never go through the chat. `AGENTS.md` (and `CLAUDE.md`) point agents to it, or to
   CONTRIBUTING.md for changes to tailnet-preview; the README says to give an agent the repository's URL.
+- A project icon (`assets/icon.svg`, PNGs at 256 and 512 px), at the top of both READMEs.
 
 ## 0.3.0 - 2026-10-19
 

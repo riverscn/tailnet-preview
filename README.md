@@ -1,6 +1,8 @@
-# tailnet-preview
+<p align="center"><img src="assets/icon.svg" width="112" height="112" alt=""></p>
 
-**Per-PR preview environments on your own host, reachable only via your tailnet.**
+<h1 align="center">tailnet-preview</h1>
+
+<p align="center"><strong>Per-PR preview environments on your own host, reachable only via your tailnet.</strong></p>
 
 [简体中文](README.zh-CN.md)
 

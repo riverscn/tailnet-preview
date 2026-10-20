@@ -1,6 +1,8 @@
-# tailnet-preview
+<p align="center"><img src="assets/icon.svg" width="112" height="112" alt=""></p>
 
-**在你自己的主机上，为每个 PR 起一套试用环境，只能通过你的 tailnet 访问。**
+<h1 align="center">tailnet-preview</h1>
+
+<p align="center"><strong>在你自己的主机上，为每个 PR 起一套试用环境，只能通过你的 tailnet 访问。</strong></p>
 
 [English](README.md)
 
