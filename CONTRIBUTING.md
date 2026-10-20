@@ -15,6 +15,10 @@ are the most useful kind. To talk a change through before writing it, or for que
 - A failure with a recognizable cause gets a reason code: `fail <code>` in the engine, an entry in
   `REASONS` in `lib/comment.cjs` for every language, and a row in [docs/troubleshooting.md](docs/troubleshooting.md).
   A unit test checks that the engine and the comment agree.
+- The agent skill ([skills/tailnet-preview/SKILL.md](skills/tailnet-preview/SKILL.md)) sums up
+  [docs/agent-guide.md](docs/agent-guide.md) and the troubleshooting table and points to the documents for
+  the details. A change to the setup phases, commands or reason codes updates it too. It is written for
+  agents and has no Chinese version; it tells the agent to answer in the person's language.
 
 ## Development
 

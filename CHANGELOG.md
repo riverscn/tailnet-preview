@@ -4,6 +4,12 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+### Added
+
+- An agent skill, `skills/tailnet-preview/`, installed with `npx skills add riverscn/tailnet-preview`. It
+  guides a person through setup, adding a project, the shared ingress and troubleshooting, by asking
+  questions and following the documentation.
+
 ### Changed
 
 - The README gives a prompt to paste into an AI coding agent to set up previews.

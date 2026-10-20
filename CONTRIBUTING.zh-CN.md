@@ -10,6 +10,7 @@
 - 引擎不引入依赖：只用 Bash、Docker（Compose v2）、git、flock、coreutils。不在主机上增加新工具。
 - 不兼容的改动需要升主版本号（[design.md 第 9 节](docs/design.zh-CN.md#9-版本)）。
 - 原因能识别的失败要有一个原因码：引擎里写 `fail <code>`，`lib/comment.cjs` 的 `REASONS` 里为每种语言加一条，[docs/troubleshooting.md](docs/troubleshooting.zh-CN.md) 里加一行。有单元测试检查引擎和评论是否一致。
+- agent skill（[skills/tailnet-preview/SKILL.md](skills/tailnet-preview/SKILL.md)）概括了 [docs/agent-guide.md](docs/agent-guide.zh-CN.md) 和排障表，细节指向各文档。改动接入阶段、命令或原因码时也要更新它。它是写给 agent 的，没有中文版；它会让 agent 用对方的语言回答。
 
 ## 开发
 
