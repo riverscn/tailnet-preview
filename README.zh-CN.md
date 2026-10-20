@@ -5,7 +5,7 @@
 [English](README.md)
 
 开一个 PR，你自己的机器上就会起一套完整的应用：独立的容器、**从常驻基线复制来的数据**，以及一个形如
-`https://myapp-pr-42.your-tailnet.ts.net` 的 HTTPS 地址，只有你 [Tailscale](https://tailscale.com) 网络里的设备能打开。
+`https://myapp-pr-42.your-tailnet.ts.net` 的 HTTPS 地址（用自己的域名时形如 `https://myapp-pr-42.preview.example.com`，见[两种模式](#两种模式)），只有你 [Tailscale](https://tailscale.com) 网络里的设备能打开。
 往 PR 推送会原地升级，关闭 PR 环境就删除。PR 上的评论会给出访问地址；部署失败时，会写明原因和处理步骤。
 
 ```
@@ -18,7 +18,7 @@ pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）
 ## 为什么
 
 - **贴近真实的升级。** PR 环境从基线数据的副本开始，再执行这个 PR 的迁移，和上线时一样。只在已有数据上才会出现的问题，合并前就能发现。
-- **天然私有。** 每个环境都是一个带 HTTPS 的 Tailscale 节点。没有公网端口，也不需要隧道或登录页。
+- **天然私有。** 环境只能经 tailnet 用 HTTPS 访问。没有公网端口，也不需要隧道或登录页。
 - **便宜。** 任何装了 Docker 的 Linux 机器都行，比如家里的小主机或一台闲置虚拟机。一台机器可以服务多个项目，而且不用为某个项目单独设置主机。
 - **工具朴素，不挑技术栈。** 只用 Bash 和 Docker Compose。数据库就是你自己 `compose.yaml` 里的一个服务，用什么数据库都行；数据按 Docker 数据卷复制。没有集群，也没有控制面。
 
@@ -29,11 +29,25 @@ pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）
 | `main`，即基线 | 第一次创建时执行迁移并灌演示数据，之后每次推送默认分支时原地升级 | 常驻           |
 | `pr-<编号>`    | 复制基线的数据卷（数据库、上传文件等），再执行 PR 的迁移         | 到 PR 关闭为止 |
 
-每个环境是一个 Docker Compose 项目，由你的服务（包括数据库）加一个 Tailscale sidecar 组成，sidecar 提供 HTTPS 并代理到你的服务。fork 时，引擎让基线暂停几秒，复制你在 `DATA_VOLUMES` 里列出的数据卷。详见 [docs/design.md](docs/design.md)（英文）。
+每个环境是一个 Docker Compose 项目，由你的服务（包括数据库）组成；前面的 HTTPS 由主机的模式决定，见下文。fork 时，引擎让基线暂停几秒，复制你在 `DATA_VOLUMES` 里列出的数据卷。详见 [docs/design.md](docs/design.md)（英文）。
+
+## 两种模式
+
+环境怎么被访问，是主机的设置（`TP_INGRESS`），主机上的所有项目一致；切换模式时项目配置不用改。
+
+|            | `sidecar`（默认）                                                                   | `shared`（共享入口）                                                             |
+| ---------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| tailnet 里 | 每个环境一个 Tailscale 节点（sidecar 容器）；基线的是常驻节点                       | 每台主机一个节点，即入口，带 Traefik 和 CoreDNS；环境不是节点                    |
+| 地址       | `https://<项目>-<环境>.<tailnet>.ts.net`                                            | `https://<项目>-<环境>.<你的域名>`                                               |
+| 证书       | 每个环境一张，部署时申请                                                            | 每台主机一张通配符证书，由入口申请和续期，与部署无关                             |
+| 需要       | 只要 Tailscale                                                                      | 另需一个 DNS 服务商有 API 的域名、tailnet 里一条 split DNS、访问策略开放 53 端口 |
+| 弱点       | 单节点证书经常第一次签不下来（Tailscale 的 DNS 验证有时序问题），sidecar 会重试一天 | 主机级组件：入口停了，所有环境都访问不到                                         |
+
+想不准备域名先试用，选 `sidecar`；要试用环境稳定可靠，选 `shared`。切换只需改主机设置，再重新部署各个环境；地址会变，数据不变（[host-setup.md 第 4 节](docs/host-setup.md#4-shared-ingress-optional-once-per-host)，英文）。等 Tailscale 开放节点子域名的通配符证书后，`shared` 可以直接用 `*.<入口>.<tailnet>.ts.net`，不再需要自己的域名（[design.md 第 10 节](docs/design.md#10-shared-ingress-one-per-host-one-wildcard-certificate)，英文）。
 
 ## 快速开始
 
-1. **一次性准备 tailnet 和主机：** 开启 HTTPS 证书，在访问策略里加上 `tag:preview`，创建 OAuth 客户端，装好 Docker 和标签为 `preview` 的 self-hosted runner。
+1. **一次性准备 tailnet 和主机：** 开启 HTTPS 证书，在访问策略里加上 `tag:preview`，创建 OAuth 客户端，装好 Docker 和标签为 `preview` 的 self-hosted runner；用共享入口时，还要一个域名的 DNS token 和一条 split DNS。
    → [docs/host-setup.md](docs/host-setup.md)
 2. **在项目里加上 `.tailnet-preview/`：** 项目原有的 compose 文件原样复用，只需补充：要构建的镜像、网站入口、应用自己的地址、模拟服务，以及迁移和演示数据任务。`tailnet-preview init` 生成初稿，`tailnet-preview validate` 检查配置。分步骤的配置指南（英文）按人和 AI agent 都能照做的方式写成：→ [docs/configuring.md](docs/configuring.md)
 3. **加一个工作流** 调用这个 action：

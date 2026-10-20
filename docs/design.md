@@ -27,6 +27,9 @@ Change it first when the design changes.
 
 ## 2. Moving parts
 
+This section and sections 3 to 7 describe the default mode, `sidecar`: every environment has its own
+Tailscale node. The `shared` mode replaces the sidecars with one ingress per host; section 10 describes it.
+
 ```
 GitHub ──(workflow job, label: preview)──▶ self-hosted runner on the preview host
                                              │

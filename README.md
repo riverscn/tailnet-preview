@@ -6,8 +6,9 @@
 
 Open a pull request and a full copy of your application starts on a machine you own: its own containers,
 its own data **copied from a long-lived baseline**, and an HTTPS address like
-`https://myapp-pr-42.your-tailnet.ts.net` that only devices in your [Tailscale](https://tailscale.com)
-network can open. Push to the PR and it upgrades in place; close the PR and it is gone. A comment on the PR
+`https://myapp-pr-42.your-tailnet.ts.net` (or `https://myapp-pr-42.preview.example.com` with a domain of
+yours, see [two modes](#two-modes)) that only devices in your [Tailscale](https://tailscale.com) network
+can open. Push to the PR and it upgrades in place; close the PR and it is gone. A comment on the PR
 says where it is, or exactly what went wrong and how to fix it.
 
 ```
@@ -21,8 +22,8 @@ pull request ──▶ GitHub Actions (self-hosted runner on your machine)
 
 - **Realistic upgrades.** A PR environment starts from a copy of the baseline's data and runs the PR's
   migrations, the way production will. Bugs that only appear on an existing database show up before merge.
-- **Private by construction.** Each environment is a Tailscale node with HTTPS. There is no public port,
-  tunnel, or login page to protect.
+- **Private by construction.** Environments are reachable only through your tailnet, over HTTPS. There is
+  no public port, tunnel, or login page to protect.
 - **Cheap.** Any Linux box with Docker: a home server, a spare VM. One machine serves many projects; the
   machine needs no per-project setup.
 - **Plain tools, any stack.** Bash and Docker Compose. Your database is a service in your own
@@ -35,14 +36,34 @@ pull request ──▶ GitHub Actions (self-hosted runner on your machine)
 | `main`, the baseline | Created once (migrate + seed), then upgraded by every push to the default branch     | Long-lived          |
 | `pr-<number>`        | A copy of the baseline's data volumes (database, uploads…), then the PR's migrations | Until the PR closes |
 
-Each environment is a Docker Compose project: your services, database included, plus a Tailscale
-sidecar that serves HTTPS and proxies to them. To fork, the engine pauses the baseline for a few seconds
-and copies the volumes you list in `DATA_VOLUMES`. Details: [docs/design.md](docs/design.md).
+Each environment is a Docker Compose project: your services, database included. HTTPS in front of them
+comes from the host's mode, below. To fork, the engine pauses the baseline for a few seconds and copies
+the volumes you list in `DATA_VOLUMES`. Details: [docs/design.md](docs/design.md).
+
+## Two modes
+
+How environments are reached is a setting of the host (`TP_INGRESS`), the same for every project on it.
+Projects do not change between them.
+
+|                | `sidecar` (default)                                                                                           | `shared`                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| In the tailnet | One Tailscale node per environment (a sidecar container); the baseline's is persistent                        | One node per host, the ingress, with Traefik and CoreDNS; environments are not nodes                 |
+| Address        | `https://<project>-<env>.<tailnet>.ts.net`                                                                    | `https://<project>-<env>.<your domain>`                                                              |
+| Certificate    | One per environment, requested during the deploy                                                              | One wildcard certificate per host, issued and renewed by the ingress, apart from deploys             |
+| Needs          | Tailscale only                                                                                                | Also a domain whose DNS provider has an API, a split DNS entry in the tailnet, port 53 in the policy |
+| Weak point     | Per-node certificates often fail at first (Tailscale's DNS validation is racy); the sidecar retries for a day | A host-wide component: if the ingress stops, no environment is reachable                             |
+
+Choose `sidecar` to try it out without a domain, `shared` when previews must be reliable. Switching is a
+host setting plus a redeploy of each environment; addresses change, data does not
+([host-setup.md section 4](docs/host-setup.md#4-shared-ingress-optional-once-per-host)). Once Tailscale
+grants wildcard certificates for a node's subdomains, `shared` will work with `*.<ingress>.<tailnet>.ts.net`
+and no domain of your own ([design.md section 10](docs/design.md#10-shared-ingress-one-per-host-one-wildcard-certificate)).
 
 ## Quick start
 
 1. **Prepare the tailnet and the host once:** enable HTTPS certificates, add a `tag:preview` policy,
-   create an OAuth client, install Docker and a self-hosted runner labelled `preview`.
+   create an OAuth client, install Docker and a self-hosted runner labelled `preview`; for the shared
+   ingress, also a domain's DNS token and a split DNS entry.
    → [docs/host-setup.md](docs/host-setup.md)
 2. **Add `.tailnet-preview/` to your project:** your existing compose file is reused unchanged; you add
    which images to build, the entry point, the application's own URL, mocks and migrate/seed tasks.
