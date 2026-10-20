@@ -7,6 +7,9 @@ person or an AI coding agent can follow from top to bottom: every step says **wh
 project and **what to write**. The result is a `.tailnet-preview/` directory that passes
 `tailnet-preview validate` and a local smoke test.
 
+Working with an AI agent? Give it this guide; [agent-guide.md](agent-guide.md) puts it in the context of
+the whole setup.
+
 Reference for every key and variable: [design.md section 5](design.md#5-project-configuration). Workflow
 and repository settings come afterwards: [repository-setup.md](repository-setup.md).
 

@@ -25,6 +25,10 @@ All notable changes are documented here. The project follows [Semantic Versionin
   uses it and how to check it: the OAuth client secret of host setup step 1.3 is `TS_OAUTH_SECRET` in step
   2.4; Docker group membership; the `tailnet-preview` command on `PATH`; registering the runner and
   checking it is Idle; the repository variable and secret; what happens on the first pull request.
+- `docs/agent-guide.md`: a playbook for an AI agent that sets previews up for a person, phase by phase, with
+  who does each step (the person, the agent, or the agent after asking), a check for every step, and the
+  rule that secrets never go through the chat. `AGENTS.md` (and `CLAUDE.md`) point agents to it, or to
+  CONTRIBUTING.md for changes to tailnet-preview; the README says to give an agent the repository's URL.
 
 ## 0.3.0 - 2026-10-19
 

@@ -4,6 +4,8 @@
 
 接入 tailnet-preview 的最后一步：为仓库打开试用环境，并加上部署它们的工作流。在这之前，主机已经准备好（[host-setup.zh-CN.md](host-setup.zh-CN.md)），项目里也有了能通过 `tailnet-preview validate` 的 `.tailnet-preview/` 目录（[configuring.zh-CN.md](configuring.zh-CN.md)）。[example](../example/) 是一个完整的最小项目；每项设置的说明见 [design.zh-CN.md 第 5 节](design.zh-CN.md#5-项目配置)。
 
+在用 AI agent？经你同意后，这些步骤它都可以做（[agent-guide.zh-CN.md](agent-guide.zh-CN.md) 第 6 阶段）。
+
 ## 1. 为仓库启用
 
 - **开关：** 在 GitHub 上打开仓库，Settings → Secrets and variables → Actions → **Variables** 标签页 → New repository variable，名称 `PREVIEW_ENABLED`，值 `true`。设置之前，工作流的任务会直接跳过，而不是一直等待 runner，所以主机准备好之前就可以合并工作流。

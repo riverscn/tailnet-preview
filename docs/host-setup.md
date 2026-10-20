@@ -5,6 +5,8 @@
 The preview host is generic: the steps below are done once per tailnet and once per machine. Adding a
 project later needs no login to the host (see [repository-setup.md](repository-setup.md)).
 
+Working with an AI agent? [agent-guide.md](agent-guide.md) says which of these steps it can do for you.
+
 You will collect one secret on the way, the **OAuth client secret** from step 1.3. It is called
 `TS_OAUTH_SECRET` from then on; keep it somewhere safe until step 2.4.
 

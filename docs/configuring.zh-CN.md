@@ -4,6 +4,8 @@
 
 本指南把一个仓库改造成 tailnet-preview 能部署的样子。它写成一套流程，人或 AI 编码 agent 都能从头到尾照做：每一步都说明在项目里**看哪里**、**写什么**。最终得到一个 `.tailnet-preview/` 目录，能通过 `tailnet-preview validate` 和一次本地冒烟测试。
 
+在用 AI agent？把这份指南交给它；[agent-guide.zh-CN.md](agent-guide.zh-CN.md) 说明了它在整个接入流程中的位置。
+
 所有配置项和变量的说明见 [design.md 第 5 节](design.zh-CN.md#5-项目配置)。工作流和仓库设置在这之后进行，见 [repository-setup.md](repository-setup.zh-CN.md)。
 
 > **给 AI agent。** 按顺序完成各步。仓库里找不到的值不要编造，留一个 `TODO` 并提问。配置里不要放真实凭据、生产环境的主机名或真实用户数据。不要改变项目在其他地方的运行方式：所有只和试用环境有关的内容都放进 `.tailnet-preview/`。[检查清单](#检查清单)全部完成即为结束。

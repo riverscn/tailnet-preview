@@ -23,6 +23,7 @@ You need Docker, Node.js 22, shellcheck, yq and (for workflows) actionlint.
 shellcheck bin/tailnet-preview test/*.sh test/fake-tailscale/tailscale example/app/handler.sh
 node --test 'test/*.test.mjs'          # PR comment rendering
 test/integration.sh                     # engine against Docker, fake Tailscale (a few minutes)
+test/ingress.sh                         # the shared ingress: Traefik, CoreDNS, fake Tailscale
 test/action.sh                          # the action's deploy decisions
 npx prettier@3.9.9 --check .
 ```

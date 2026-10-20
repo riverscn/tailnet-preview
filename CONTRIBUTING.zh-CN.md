@@ -19,6 +19,7 @@
 shellcheck bin/tailnet-preview test/*.sh test/fake-tailscale/tailscale example/app/handler.sh
 node --test 'test/*.test.mjs'          # PR 评论的渲染
 test/integration.sh                     # 用 Docker 和假的 Tailscale 测试引擎（需要几分钟）
+test/ingress.sh                         # 共享入口：Traefik、CoreDNS、假 Tailscale
 test/action.sh                          # action 的部署判断
 npx prettier@3.9.9 --check .
 ```

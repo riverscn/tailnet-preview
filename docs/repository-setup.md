@@ -8,6 +8,9 @@ deploys them. Before this, the host is ready ([host-setup.md](host-setup.md)) an
 The [example](../example/) is a complete minimal project; every setting is described in
 [design.md section 5](design.md#5-project-configuration).
 
+Working with an AI agent? It can do these steps once you agree ([agent-guide.md](agent-guide.md), phase
+6).
+
 ## 1. Enable it for the repository
 
 - **The switch:** in the repository on GitHub, Settings → Secrets and variables → Actions → **Variables**

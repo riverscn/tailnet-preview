@@ -4,6 +4,9 @@
 
 [简体中文](README.zh-CN.md)
 
+> **Using an AI coding agent?** Give it this repository's URL and ask it to set up previews for your
+> project. It follows [docs/agent-guide.md](docs/agent-guide.md) and tells you which steps only you can do.
+
 Open a pull request and a complete copy of your application starts on a machine you own, with its own
 database copied from a long-lived **baseline** of your default branch. You get a private HTTPS address that
 only devices in your [Tailscale](https://tailscale.com) network can open. Every push to the PR updates it,
@@ -124,6 +127,8 @@ In the order you need them:
 4. [Troubleshooting](docs/troubleshooting.md): symptoms, causes, fixes
 5. [Security](docs/security.md): what you trust when you run it, and public repositories
 6. [Design](docs/design.md): how it works, every setting and command, failure codes
+
+With an AI agent: [agent guide](docs/agent-guide.md), which steps it does and which you do.
 
 Every document has a Simplified Chinese version next to it (`<name>.zh-CN.md`), linked at its top.
 

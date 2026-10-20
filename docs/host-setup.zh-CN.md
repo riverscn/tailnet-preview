@@ -4,6 +4,8 @@
 
 试用主机是通用的：下面的步骤每个 tailnet 做一次，每台主机做一次。之后接入新项目不需要登录主机（见 [repository-setup.zh-CN.md](repository-setup.zh-CN.md)）。
 
+在用 AI agent？[agent-guide.zh-CN.md](agent-guide.zh-CN.md) 写明了其中哪些步骤可以交给它。
+
 过程中你会拿到一个密钥：第 1.3 步的 **OAuth 客户端密钥**。从那以后它叫 `TS_OAUTH_SECRET`；在第 2.4 步用到它之前，把它保存在安全的地方。
 
 ## 1. tailnet（一次）

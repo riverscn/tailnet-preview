@@ -4,6 +4,8 @@
 
 [English](README.md)
 
+> **在用 AI 编程助手？** 把本仓库的地址交给它，让它为你的项目接入试用环境。它会按 [docs/agent-guide.zh-CN.md](docs/agent-guide.zh-CN.md) 来做，并告诉你哪些步骤只能由你亲自完成。
+
 开一个 PR，你自己的机器上就会起一套完整的应用，数据库从默认分支的常驻**基线**复制而来。你会得到一个私有的 HTTPS 地址，只有你 [Tailscale](https://tailscale.com) 网络里的设备能打开。往 PR 推送会更新它，关闭 PR 它就删除。PR 上的评论会给出地址；部署失败时，会写明原因和处理办法。
 
 ```
@@ -115,6 +117,8 @@ $ tailnet-preview reset pr-42       # 重新复制基线
 4. [故障排查](docs/troubleshooting.zh-CN.md)：现象、原因、处理
 5. [安全模型](docs/security.zh-CN.md)：运行它意味着信任什么，以及公开仓库
 6. [设计](docs/design.zh-CN.md)：工作原理、所有设置和命令、原因码
+
+用 AI agent 接入：[agent 操作手册](docs/agent-guide.zh-CN.md)，写明哪些步骤由它做、哪些由你做。
 
 每份文档都有英文版，以英文版为准，两者在开头互相链接。
 
