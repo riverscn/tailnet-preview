@@ -4,6 +4,8 @@
 
 <p align="center"><strong>在你自己的主机上，为每个 PR 起一套试用环境，只能通过你的 tailnet 访问。</strong></p>
 
+<p align="center"><a href="https://discord.gg/mCevCGR9Pc"><img src="https://img.shields.io/badge/Discord-join%20the%20chat-5865F2?logo=discord&logoColor=white" alt="Discord"></a></p>
+
 [English](README.md)
 
 > **在用 AI 编程助手？** 把本仓库的地址交给它，让它为你的项目接入试用环境。它会按 [docs/agent-guide.zh-CN.md](docs/agent-guide.zh-CN.md) 来做，并告诉你哪些步骤只能由你亲自完成。
@@ -127,6 +129,10 @@ $ tailnet-preview reset pr-42       # 重新复制基线
 ## 状态
 
 1.0 之前（0.x）。它在脱胎的那个多租户 SaaS 项目里日常使用，跑在一台家用主机上。次版本仍可能改变配置或行为，所以请固定完整版本号（`@v0.3.0`），升级前先看 [CHANGELOG](CHANGELOG.md)。只支持 Linux 主机。来自 fork 的 PR 一律不部署；公开仓库还要为 runner 做额外设置（[安全模型](docs/security.zh-CN.md)）。
+
+## 社区
+
+有问题、想法，或者接入时需要帮助：欢迎加入 [Discord 服务器](https://discord.gg/mCevCGR9Pc)。bug 和功能建议请提到 [GitHub issues](https://github.com/riverscn/tailnet-preview/issues)。安全问题请按 [SECURITY.zh-CN.md](SECURITY.zh-CN.md) 私下报告，不要发在 Discord 上。
 
 ## 参与贡献
 

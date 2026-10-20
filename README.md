@@ -4,6 +4,8 @@
 
 <p align="center"><strong>Per-PR preview environments on your own host, reachable only via your tailnet.</strong></p>
 
+<p align="center"><a href="https://discord.gg/mCevCGR9Pc"><img src="https://img.shields.io/badge/Discord-join%20the%20chat-5865F2?logo=discord&logoColor=white" alt="Discord"></a></p>
+
 [简体中文](README.zh-CN.md)
 
 > **Using an AI coding agent?** Give it this repository's URL and ask it to set up previews for your
@@ -140,6 +142,12 @@ Pre-1.0 (0.x). It is in daily use by the multi-tenant SaaS project it was extrac
 Minor versions may still change configuration or behaviour, so pin the full version (`@v0.3.0`) and read
 the [changelog](CHANGELOG.md) before upgrading. It supports Linux hosts only. Pull requests from forks are
 never deployed, and a public repository needs extra settings for its runner ([security](docs/security.md)).
+
+## Community
+
+Questions, ideas, or help with a setup: join the [Discord server](https://discord.gg/mCevCGR9Pc). Bugs and feature requests go to
+[GitHub issues](https://github.com/riverscn/tailnet-preview/issues). Report security problems privately, as
+[SECURITY.md](SECURITY.md) describes, not on Discord.
 
 ## Contributing
 

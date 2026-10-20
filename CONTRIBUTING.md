@@ -3,7 +3,8 @@
 [简体中文](CONTRIBUTING.zh-CN.md)
 
 Thanks for helping. Bug reports with the output of `tailnet-preview doctor <env>` (secrets are redacted)
-are the most useful kind.
+are the most useful kind. To talk a change through before writing it, or for questions, join the
+[Discord server](https://discord.gg/mCevCGR9Pc).
 
 ## Ground rules
 

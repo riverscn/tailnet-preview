@@ -2,7 +2,7 @@
 
 [English](CONTRIBUTING.md)
 
-感谢帮忙。最有用的是附上 `tailnet-preview doctor <env>` 输出的问题报告（输出里的密钥已隐去）。
+感谢帮忙。最有用的是附上 `tailnet-preview doctor <env>` 输出的问题报告（输出里的密钥已隐去）。想在动手之前先讨论一个改动，或者有问题要问，欢迎加入 [Discord 服务器](https://discord.gg/mCevCGR9Pc)。
 
 ## 基本规则
 
