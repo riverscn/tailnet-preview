@@ -2,7 +2,7 @@
 
 <h1 align="center">tailnet-preview</h1>
 
-<p align="center"><strong>在你自己的主机上，为每个 PR 起一套试用环境，只能通过你的 tailnet 访问。</strong></p>
+<p align="center"><strong>在你自己的电脑上，为每个 PR 起一套试用环境，只能通过你的 tailnet 访问。</strong></p>
 
 <p align="center"><a href="https://discord.gg/mCevCGR9Pc"><img src="https://img.shields.io/badge/Discord-join%20the%20chat-5865F2?logo=discord&logoColor=white" alt="Discord"></a></p>
 

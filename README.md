@@ -2,7 +2,7 @@
 
 <h1 align="center">tailnet-preview</h1>
 
-<p align="center"><strong>Per-PR preview environments on your own host, reachable only via your tailnet.</strong></p>
+<p align="center"><strong>Per-PR preview environments on your own machine, reachable only via your tailnet.</strong></p>
 
 <p align="center"><a href="https://discord.gg/mCevCGR9Pc"><img src="https://img.shields.io/badge/Discord-join%20the%20chat-5865F2?logo=discord&logoColor=white" alt="Discord"></a></p>
 

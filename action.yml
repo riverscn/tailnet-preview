@@ -1,5 +1,5 @@
 name: tailnet-preview
-description: Per-PR preview environments on your own host, reachable only via your tailnet.
+description: Per-PR preview environments on your own machine, reachable only via your tailnet.
 author: riverscn
 branding:
   icon: eye

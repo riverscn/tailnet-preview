@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tailnet-preview: per-PR preview environments on your own host, reachable only via your tailnet.
+# tailnet-preview: per-PR preview environments on your own machine, reachable only via your tailnet.
 # See docs/design.md for the model and the project configuration this script reads.
 #
 # Usage: tailnet-preview <command> [args]
