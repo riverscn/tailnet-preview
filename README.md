@@ -8,6 +8,10 @@
 
 [简体中文](README.zh-CN.md)
 
+https://github.com/user-attachments/assets/88634a7c-9dcd-4f5d-873d-30e7c57d16a4
+
+<p align="center"><sub>Also as files: <a href="website/public/video/tailnet-preview-en.mp4">English voice-over</a> · <a href="website/public/video/tailnet-preview-zh.mp4">Chinese voice-over</a></sub></p>
+
 > **Using an AI coding agent?** Open it in your project and paste this prompt:
 >
 > ```text

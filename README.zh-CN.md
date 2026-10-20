@@ -8,6 +8,10 @@
 
 [English](README.md)
 
+https://github.com/user-attachments/assets/88634a7c-9dcd-4f5d-873d-30e7c57d16a4
+
+<p align="center"><sub>视频文件：<a href="website/public/video/tailnet-preview-zh.mp4">中文配音版</a> · <a href="website/public/video/tailnet-preview-en.mp4">英文配音版</a></sub></p>
+
 > **在用 AI 编程助手？** 在你的项目里打开它，粘贴这段提示词：
 >
 > ```text
