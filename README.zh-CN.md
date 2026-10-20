@@ -11,7 +11,7 @@
 > **在用 AI 编程助手？** 在你的项目里打开它，粘贴这段提示词：
 >
 > ```text
-> 为这个项目接入 tailnet-preview（https://github.com/riverscn/tailnet-preview），让每个 PR 都在我的机器上
+> 为这个项目接入 tailnet-preview（https://github.com/riverscn/tailnet-preview），让每个 PR 都在我的主机上
 > 有自己的试用环境。按它的 docs/agent-guide.zh-CN.md 来做。需要我亲自做的步骤一次性告诉我，永远不要在聊天里
 > 向我索要密钥。
 > ```
