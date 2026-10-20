@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="tailnet-preview">
+  <title>tailnet-preview</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#1e3a8a"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <!-- the default branch -->
+  <path d="M72 70 V186" stroke="#fff" stroke-width="16" stroke-linecap="round" fill="none"/>
+  <circle cx="72" cy="66" r="18" fill="#fff"/>
+  <circle cx="72" cy="190" r="18" fill="#fff"/>
+  <!-- a pull request's branch, ending in its preview -->
+  <path d="M72 166 C72 132 92 128 116 128" stroke="#fff" stroke-width="16" stroke-linecap="round" fill="none"/>
+  <rect x="112" y="78" width="104" height="100" rx="18" fill="#fff"/>
+  <path d="M112 96 a18 18 0 0 1 18 -18 h68 a18 18 0 0 1 18 18 v8 h-104 z" fill="#bfdbfe"/>
+  <circle cx="132" cy="92" r="5" fill="#1e3a8a"/>
+  <circle cx="148" cy="92" r="5" fill="#1e3a8a"/>
+  <path d="M138 140 l14 14 l28 -28" stroke="#2563eb" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+</svg>

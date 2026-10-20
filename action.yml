@@ -18,13 +18,22 @@ inputs:
   language:
     description: Language of the pull request comment (en, zh-CN)
     default: en
+  drafts:
+    description: 'Deploy draft pull requests too ("true"), or only once they are ready for review ("false")'
+    default: 'true'
+  branches:
+    description: >-
+      Branches without an open pull request that get an environment of their own: "" (none), "*" (every
+      branch) or globs separated by spaces or commas, e.g. "release/* feature/*". Use the same value in the
+      nightly job, which prunes by it (docs/design.md section 3).
+    default: ''
   github-token:
     description: Token used to write the pull request comment and list open pull requests
     default: ${{ github.token }}
 
 outputs:
   environment:
-    description: Environment name (main or pr-<number>)
+    description: Environment name (main, pr-<number> or br-<branch>), empty when the deploy was skipped
     value: ${{ steps.env.outputs.name }}
   url:
     description: URL of the environment after a successful deploy
@@ -36,16 +45,45 @@ outputs:
 runs:
   using: composite
   steps:
+    # A branch with an open pull request is served by the PR's environment.
+    - name: Pull request of the branch
+      id: branch-pr
+      if: >-
+        inputs.command == 'deploy' && github.event_name == 'push' && inputs.branches != '' &&
+        github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+      uses: actions/github-script@v9
+      with:
+        github-token: ${{ inputs.github-token }}
+        result-encoding: string
+        script: |
+          const branch = context.ref.replace(/^refs\/heads\//, '')
+          const prs = await github.rest.pulls.list({ ...context.repo, state: 'open', head: `${context.repo.owner}:${branch}` })
+          return prs.data.length ? String(prs.data[0].number) : ''
+
     - name: Environment
       id: env
       shell: bash
       env:
+        TP: ${{ github.action_path }}/bin/tailnet-preview
         COMMAND: ${{ inputs.command }}
         EVENT: ${{ github.event_name }}
         PR: ${{ github.event.pull_request.number }}
+        DRAFT: ${{ github.event.pull_request.draft }}
+        DRAFTS: ${{ inputs.drafts }}
+        BRANCHES: ${{ inputs.branches }}
+        BRANCH_PR: ${{ steps.branch-pr.outputs.result }}
+        DELETED_REF: ${{ github.event.ref }}
+        DELETED_TYPE: ${{ github.event.ref_type }}
         HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
+        # Not every event gets an environment; a skipped deploy succeeds and says why.
+        skip() {
+          echo "skip=true" >> "$GITHUB_OUTPUT"
+          echo "### No preview environment: $1" >> "$GITHUB_STEP_SUMMARY"
+          echo "tailnet-preview: no environment, $1"
+          exit 0
+        }
         # Deploying runs the PR's code on the host: never for a fork, whatever the workflow's condition says
         # (docs/security.md).
         if [[ $COMMAND == deploy && -n $PR && $HEAD_REPO != "$GITHUB_REPOSITORY" ]]; then
@@ -54,10 +92,19 @@ runs:
         fi
         case "$COMMAND" in
           deploy | destroy)
-            if [[ -n $PR ]]; then name=pr-$PR
+            if [[ -n $PR ]]; then
+              name=pr-$PR
+              [[ $COMMAND != deploy || $DRAFT != true || $DRAFTS != false ]] || skip "pr-$PR is a draft (drafts: false)"
             elif [[ $EVENT == push && $GITHUB_REF == "refs/heads/$DEFAULT_BRANCH" ]]; then name=main
+            elif [[ $EVENT == push && $GITHUB_REF == refs/heads/* ]]; then
+              branch=${GITHUB_REF#refs/heads/}
+              [[ -n $BRANCHES ]] || skip "branch $branch: branch previews are off (branches input)"
+              name=$("$TP" branch-env --match "$BRANCHES" "$branch") || skip "branch $branch does not match '$BRANCHES'"
+              [[ -z $BRANCH_PR ]] || skip "branch $branch has pull request #$BRANCH_PR, whose environment serves it"
+            elif [[ $EVENT == delete && $DELETED_TYPE == branch && $COMMAND == destroy ]]; then
+              name=$("$TP" branch-env "$DELETED_REF")
             else
-              echo "::error::tailnet-preview $COMMAND runs on pull_request events or pushes to $DEFAULT_BRANCH"
+              echo "::error::tailnet-preview $COMMAND runs on pull_request events, pushes and (destroy) branch deletions"
               exit 1
             fi
             [[ $COMMAND == deploy || $name != main ]] || { echo "::error::destroy does not remove the baseline"; exit 1; }
@@ -69,7 +116,7 @@ runs:
 
     - name: Deploy
       id: deploy
-      if: inputs.command == 'deploy'
+      if: inputs.command == 'deploy' && steps.env.outputs.skip != 'true'
       shell: bash
       env:
         TP: ${{ github.action_path }}/bin/tailnet-preview
@@ -79,7 +126,7 @@ runs:
         TP_NOTICE_FILE: ${{ runner.temp }}/tailnet-preview-notice
         CONFIG_REL: ${{ inputs.config }}
         ENV_NAME: ${{ steps.env.outputs.name }}
-        BASE_REF: ${{ github.event.pull_request.base.ref }}
+        BASE_REF: ${{ github.event.pull_request.base.ref || github.event.repository.default_branch }}
       run: |
         # Actions runs `bash -e`: failures are collected in $code instead of ending the step.
         set +e -uo pipefail
@@ -129,7 +176,7 @@ runs:
         [[ $code != 0 ]] || echo "### Preview ready: $url" >> "$GITHUB_STEP_SUMMARY"
 
     - name: Diagnostics
-      if: ${{ !cancelled() && steps.env.outcome == 'success' && inputs.command == 'deploy' && steps.deploy.outputs.code != '3' }}
+      if: ${{ !cancelled() && steps.env.outcome == 'success' && steps.env.outputs.skip != 'true' && inputs.command == 'deploy' && steps.deploy.outputs.code != '3' }}
       shell: bash
       env:
         TP: ${{ github.action_path }}/bin/tailnet-preview
@@ -159,6 +206,10 @@ runs:
         result-encoding: string
         script: |
           const prs = await github.paginate(github.rest.pulls.list, { ...context.repo, state: 'open', per_page: 100 })
+          // Branches without an open PR of this repository; the next step keeps those that match.
+          const heads = new Set(prs.filter((p) => p.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`).map((p) => p.head.ref))
+          const branches = await github.paginate(github.rest.repos.listBranches, { ...context.repo, per_page: 100 })
+          core.setOutput('branches', branches.map((b) => b.name).filter((b) => !heads.has(b)).join('\n'))
           return prs.map((p) => p.number).join(' ')
 
     - name: Back up and prune
@@ -169,10 +220,20 @@ runs:
         TP_SOURCE: ${{ github.workspace }}
         TP_CONFIG: ${{ github.workspace }}/${{ inputs.config }}
         OPEN: ${{ steps.open.outputs.result }}
+        BRANCH_LIST: ${{ steps.open.outputs.branches }}
+        BRANCHES: ${{ inputs.branches }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
         "$TP" backup
+        keep=$OPEN
+        if [[ -n $BRANCHES ]]; then
+          while IFS= read -r branch; do
+            [[ -n $branch && $branch != "$DEFAULT_BRANCH" ]] || continue
+            if env=$("$TP" branch-env --match "$BRANCHES" "$branch"); then keep+=" $env"; fi
+          done <<<"$BRANCH_LIST"
+        fi
         # shellcheck disable=SC2086
-        "$TP" prune $OPEN
+        "$TP" prune $keep
 
     - name: Run
       if: inputs.command == 'run'
@@ -183,16 +244,16 @@ runs:
         TP_CONFIG: ${{ github.workspace }}/${{ inputs.config }}
         ARGS: ${{ inputs.args }}
       run: |
-        # The checkout is the default branch: it must not end up in a PR environment (docs/design.md section 8).
-        if [[ $ARGS =~ ^[[:space:]]*(deploy|reset)[[:space:]]+pr- ]]; then
-          echo "::error::'$ARGS' would deploy the code of $GITHUB_REF into a PR environment. Run 'destroy pr-<n>' and re-run the PR's deploy job instead."
+        # The checkout is the default branch: it must not end up in a PR or branch environment (docs/design.md section 8).
+        if [[ $ARGS =~ ^[[:space:]]*(deploy|reset)[[:space:]]+(pr|br)- ]]; then
+          echo "::error::'$ARGS' would deploy the code of $GITHUB_REF into that environment. Run 'destroy <env>' and re-run its deploy job (or push to the branch) instead."
           exit 1
         fi
         # shellcheck disable=SC2086
         "$TP" $ARGS
 
     - name: Pull request comment
-      if: ${{ !cancelled() && steps.env.outcome == 'success' && github.event.pull_request.number && (inputs.command == 'destroy' || inputs.command == 'deploy') }}
+      if: ${{ !cancelled() && steps.env.outcome == 'success' && steps.env.outputs.skip != 'true' && github.event.pull_request.number && (inputs.command == 'destroy' || inputs.command == 'deploy') }}
       uses: actions/github-script@v9
       env:
         COMMENT_JS: ${{ github.action_path }}/lib/comment.cjs
@@ -226,7 +287,7 @@ runs:
           await upsert({ github, context, issueNumber: context.payload.pull_request.number, body: render(kind, data) })
 
     - name: Result
-      if: ${{ !cancelled() && steps.env.outcome == 'success' && inputs.command == 'deploy' }}
+      if: ${{ !cancelled() && steps.env.outcome == 'success' && steps.env.outputs.skip != 'true' && inputs.command == 'deploy' }}
       shell: bash
       env:
         CODE: ${{ steps.deploy.outputs.code }}

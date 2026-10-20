@@ -4,7 +4,9 @@
 
 本指南把一个仓库改造成 tailnet-preview 能部署的样子。它写成一套流程，人或 AI 编码 agent 都能从头到尾照做：每一步都说明在项目里**看哪里**、**写什么**。最终得到一个 `.tailnet-preview/` 目录，能通过 `tailnet-preview validate` 和一次本地冒烟测试。
 
-所有配置项和变量的说明见 [design.md 第 5 节](design.zh-CN.md#5-项目配置)。工作流和仓库设置在这之后进行，见 [project-setup.md](project-setup.zh-CN.md)。
+在用 AI agent？把这份指南交给它；[agent-guide.zh-CN.md](agent-guide.zh-CN.md) 说明了它在整个接入流程中的位置。
+
+所有配置项和变量的说明见 [design.md 第 5 节](design.zh-CN.md#5-项目配置)。工作流和仓库设置在这之后进行，见 [repository-setup.md](repository-setup.zh-CN.md)。
 
 > **给 AI agent。** 按顺序完成各步。仓库里找不到的值不要编造，留一个 `TODO` 并提问。配置里不要放真实凭据、生产环境的主机名或真实用户数据。不要改变项目在其他地方的运行方式：所有只和试用环境有关的内容都放进 `.tailnet-preview/`。[检查清单](#检查清单)全部完成即为结束。
 
@@ -12,8 +14,18 @@
 
 - 每个要运行的服务都是**用仓库里的 Dockerfile 构建的容器镜像**，或者公开镜像（数据库、缓存、邮件捕获工具）。只能用 `npm run dev` 之类命令运行的服务，要先补一个 Dockerfile；这是对项目本身的改动，不属于试用环境配置。
 - 应用从**环境变量**读取设置，至少包括它的公开地址和数据库连接。如果某项设置写死在代码里，把它改成可配置也是对项目本身的改动。
+- 试用环境运行项目的**生产镜像、使用生产配置**，再加上让它可以放心共享的东西：模拟的短信或支付服务、演示数据、邮件捕获工具（第 6 步）。不要让试用环境连接真实的用户数据。
 
 ## 1. 从生成的初稿开始
+
+`tailnet-preview` 命令就是本仓库 `bin/` 下的引擎。它在装了 Docker 的 Linux 上运行（不能在 macOS 上运行：它需要 GNU 工具）。如果你按 [host-setup.zh-CN.md 第 2.5 步](host-setup.zh-CN.md#2-主机一次)做过，试用主机上已经装好了它；在别的 Linux 机器上，用同样的方式安装：
+
+```bash
+git clone --depth 1 https://github.com/riverscn/tailnet-preview ~/tailnet-preview
+echo 'export PATH="$HOME/tailnet-preview/bin:$PATH"' >> ~/.bashrc && . ~/.bashrc
+```
+
+CI 里由 action 自带一份，不需要在那里安装任何东西。在同一台机器上检出你项目的仓库，然后在它的根目录执行：
 
 ```bash
 tailnet-preview init          # 在仓库根目录执行；生成 .tailnet-preview/config.env 和 compose.yaml
@@ -25,7 +37,7 @@ tailnet-preview init          # 在仓库根目录执行；生成 .tailnet-previ
 
 **查找：**项目要部署的服务的 Dockerfile（`Dockerfile`、`apps/*/Dockerfile`、`*.Dockerfile`）；CI 或部署脚本里执行 `docker build` 的地方。
 
-**写入：**每个镜像一条 `name=path`，路径相对于仓库根目录，仓库根目录也是构建上下文。在 compose 里用 `${TP_IMAGE_<NAME>}` 引用镜像。
+**写入：**每个镜像一条 `name=path`，路径相对于仓库根目录，仓库根目录也是构建上下文。在 compose 里用 `${TP_IMAGE_<NAME>}` 引用镜像，其中名字转成大写、`-` 换成 `_`：`api` 对应 `${TP_IMAGE_API}`，`admin-web` 对应 `${TP_IMAGE_ADMIN_WEB}`。
 
 ```sh
 IMAGES=api=apps/api/Dockerfile web=apps/web/Dockerfile
@@ -37,7 +49,7 @@ IMAGES=api=apps/api/Dockerfile web=apps/web/Dockerfile
 
 **查找：**能运行整个应用的 compose 文件（生产用的，或完整的本地开发栈）。只为本地开发运行依赖（数据库、缓存）的 compose 文件也有用：复用它，在覆盖文件里补上应用自己的服务。
 
-**如果有这样的文件**，原样复用，只覆盖不同的部分：
+**如果有这样的文件**，原样复用，只覆盖不同的部分。覆盖文件是第二个 compose 文件，Compose 会把它逐个键合并到第一个文件之上，所以它只包含改动的部分：
 
 ```sh
 COMPOSE_FILES=../compose.yaml compose.yaml
@@ -63,7 +75,7 @@ PORTS=8025=mailpit:8025      # 可选：其他值得打开的界面，每个占�
 
 ## 5. 应用自己的地址：`TP_URL`
 
-每个环境有自己的地址 `https://<project>-<env>.<tailnet>.ts.net`，可以用 `${TP_URL}` 引用。应用的登录跳转、cookie、CORS 和邮件里的链接都要用到它。
+每个环境有自己的地址，可以用 `${TP_URL}` 引用：`https://<project>-<env>.<tailnet>.ts.net`，在使用共享入口的主机上则是 `https://<project>-<env>.<domain>`。应用的登录跳转、cookie、CORS 和邮件里的链接都要用到它。
 
 **查找：**所有包含公开地址或主机名的设置：`APP_URL`、`BASE_URL`、`PUBLIC_URL`、`NEXTAUTH_URL`、`BETTER_AUTH_URL`、`ALLOWED_ORIGINS`、`CORS_ORIGIN`、`TRUSTED_ORIGINS`，以及构建时写进前端的 `VITE_*`/`NEXT_PUBLIC_*` 变量。
 
@@ -92,7 +104,7 @@ DATA_VOLUMES=db-data uploads   # 只复制这些；缓存和构建产物从空�
 DATA_VOLUMES=none              # 每个 PR 都从空数据开始，并执行 seed 任务
 ```
 
-数据库和应用共用的密码放进 `SECRETS`，在 compose 里按名字引用。它们每个项目只生成一次，所有环境都相同，因为复制来的数据库要求这样：
+数据库和应用共用的密码放进 `SECRETS`，在 compose 里按名字引用。你只需要写出它们的名字：引擎在第一次部署时生成随机值，保存在主机上（`~/previews/<project>/secrets.env`），所有环境都用同样的值，因为复制来的数据库要求这样：
 
 ```sh
 SECRETS=DB_PASSWORD SESSION_SECRET
@@ -112,9 +124,12 @@ services:
 
 **查找：**迁移命令（`migrate`、`db:migrate`、`prisma migrate deploy`、`alembic upgrade head`……），以及灌演示数据或 fixtures 的命令。如果应用启动时会自己执行迁移，就不需要 `migrate` 任务。
 
-**写入：**把它们写成 `tasks` profile 里的服务，用 `docker compose run --rm` 执行：
+**写入：**把它们写成 `tasks` profile 里的服务，用 `docker compose run --rm` 执行。它们通常需要和应用相同的环境变量；用 YAML 锚点（`&env` 定义，`*env` 引用）可以避免重复书写：
 
 ```yaml
+x-env: &env # 应用的环境变量，它的服务和任务共用
+  DATABASE_URL: postgres://app:${DB_PASSWORD}@db:5432/app
+
 services:
   migrate:
     image: ${TP_IMAGE_API}
@@ -134,7 +149,7 @@ services:
     command: ['node', 'dist/seed.js']
 ```
 
-`migrate` 在每次部署前执行；`seed` 只在环境从空数据开始时执行。演示数据必须是虚构的；在 `comment.md` 里写明演示账号，方便评审的人登录。
+`migrate` 在每次部署前执行；`seed` 只在环境从空数据开始时执行。演示数据必须是虚构的。把演示账号写进 `.tailnet-preview/comment.md`，这是一个 Markdown 文件，它的内容会加到每条 PR 评论里，这样评审的人就知道怎么登录。
 
 ## 9. 检查
 
@@ -144,17 +159,15 @@ tailnet-preview validate
 
 它按部署时的方式合并 compose 文件，不构建也不启动任何东西，然后报告：镜像和 Dockerfile、合并了哪些文件以及相对路径解析到哪里、`HTTP` 和 `PORTS` 的服务、复制哪些数据卷、固定的数据卷名、任务，以及 `TP_URL`、镜像和密钥是否被用到。每个 `ERROR` 都要修好；每个 `WARN` 都要看一遍。
 
-然后在一台装了 Docker 的机器上实际跑一次。不需要 tailnet，用测试套件里的假 Tailscale sidecar：
+然后在一台装了 Docker 的机器上实际跑一次。不需要 tailnet，用测试套件里的假 Tailscale sidecar。下面的设置让它和真实主机的配置、环境互不干扰：
 
 ```bash
-git clone --depth 1 https://github.com/riverscn/tailnet-preview /tmp/tailnet-preview
-docker build -t tp-fake-tailscale /tmp/tailnet-preview/test/fake-tailscale
-export TP_TS_IMAGE=tp-fake-tailscale TS_OAUTH_SECRET=fake TP_HOME=$(mktemp -d)
-TP=/tmp/tailnet-preview/bin/tailnet-preview
-$TP build && $TP deploy main          # 构建、迁移、灌演示数据，并等待 HEALTH_PATH 就绪
-$TP doctor main                       # 每个上游都应回答 "ok"
-$TP compose main exec ts wget -qO- http://web:80/   # 换成你的 HTTP 上游
-$TP destroy main --force
+docker build -t tp-fake-tailscale ~/tailnet-preview/test/fake-tailscale
+export TP_TS_IMAGE=tp-fake-tailscale TS_OAUTH_SECRET=fake TP_HOME=$(mktemp -d) TP_INGRESS=sidecar TP_HOST_CONFIG=/dev/null
+tailnet-preview build && tailnet-preview deploy main          # 构建、迁移、灌演示数据，并等待 HEALTH_PATH 就绪
+tailnet-preview doctor main                                   # 每个上游都应回答 "ok"
+tailnet-preview compose main exec ts wget -qO- http://web:80/ # 换成你的 HTTP 上游
+tailnet-preview destroy main --force
 ```
 
 有服务起不来时，`deploy` 会失败并给出原因（`migrate`、`seed`、`health`……），同时打印各服务的日志。

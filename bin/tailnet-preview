@@ -12,7 +12,10 @@
 #   stop ENV | start ENV               stop or start an environment, keeping its data
 #   url ENV | info ENV | list          show URLs; info adds the tag and how the data was obtained
 #   backup                             archive the baseline's DATA_VOLUMES, keep the newest KEEP_BACKUPS
-#   prune [OPEN_PR_NUMBERS...]         destroy environments of closed PRs, remove unused images
+#   prune [KEEP...]                    destroy PR and branch environments not listed (PR numbers, br-<branch>
+#                                      names), remove unused images
+#   branch-env [--match PATTERNS] BRANCH  print the environment name of a branch; with --match, exit 1
+#                                      unless a pattern ("*", or globs like "release/*") matches it
 #   doctor ENV                         read-only diagnostics
 #   validate                           check the project configuration without deploying anything
 #   init                               write a commented .tailnet-preview/ to start from
@@ -21,7 +24,7 @@
 #   ingress up|down|status             the host's shared ingress (TP_INGRESS=shared, docs/design.md section 10)
 #   version                            print the version
 #
-# ENV is "main" (the baseline) or "pr-<number>".
+# ENV is "main" (the baseline), "pr-<number>" or "br-<branch>" (see branch-env).
 # Exit codes: 0 success, 1 failure, 3 a limit was hit, 4 the baseline does not exist.
 set -euo pipefail
 
@@ -210,7 +213,50 @@ cmd_build() {
 
 # ------------------------------------------------------------------ environments
 
-check_name() { [[ $1 == main || $1 =~ ^pr-[0-9]+$ ]] || die "environment must be main or pr-<number>, got '$1'"; }
+check_name() {
+  [[ $1 == main || $1 =~ ^pr-[0-9]+$ ]] && return
+  [[ $1 =~ ^br-[a-z0-9]([a-z0-9-]*[a-z0-9])?$ ]] && ((${#PROJECT} + ${#1} < 64)) && return
+  die "environment must be main, pr-<number> or br-<branch>, got '$1'"
+}
+
+# A branch's environment: br- and the branch in lower case with every other character replaced by "-",
+# shortened with a hash of the branch name when <project>-br-<...> would not fit a DNS label (63).
+branch_env() {
+  local branch=$1 slug max
+  slug=$(slugify "$branch")
+  max=$((63 - ${#PROJECT} - 4))
+  ((max >= 12)) || die "project name $PROJECT is too long for branch environments"
+  if [[ -z $slug ]] || ((${#slug} > max)); then
+    slug=${slug:0:$((max - 7))}
+    slug=${slug%-}
+    slug=${slug:+$slug-}$(printf '%s' "$branch" | sha256sum | cut -c1-6)
+  fi
+  printf 'br-%s\n' "$slug"
+}
+
+# Whether one of the patterns (separated by spaces or commas; "*" is every branch) matches the branch.
+# Globs as in bash: "*" also matches "/".
+branch_matches() {
+  local branch=$1 pattern globs
+  # read -a splits without expanding the globs against files, unlike an unquoted ${2}.
+  read -ra globs <<<"${2//,/ }"
+  for pattern in "${globs[@]}"; do
+    # shellcheck disable=SC2053 # the pattern is a glob on purpose
+    [[ $branch == $pattern ]] && return 0
+  done
+  return 1
+}
+
+cmd_branch_env() {
+  local patterns='' match=0
+  if [[ ${1:-} == --match ]]; then
+    match=1 patterns=${2:-}
+    shift 2 || die "usage: tailnet-preview branch-env [--match PATTERNS] BRANCH"
+  fi
+  [[ -n ${1:-} ]] || die "usage: tailnet-preview branch-env [--match PATTERNS] BRANCH"
+  if ((match)) && ! branch_matches "$1" "$patterns"; then exit 1; fi
+  branch_env "$1"
+}
 
 env_dir() { printf '%s/envs/%s' "$ROOT" "$1"; }
 
@@ -247,7 +293,7 @@ data_volumes() {
 # Created successfully at least once. A half-created environment is recreated, not upgraded.
 env_exists() { [[ -f $(env_dir "$1")/initialized ]]; }
 
-pr_env_count() { find "$ROOT/envs" -mindepth 1 -maxdepth 1 -type d -name 'pr-*' 2>/dev/null | wc -l; }
+pr_env_count() { find "$ROOT/envs" -mindepth 1 -maxdepth 1 -type d \( -name 'pr-*' -o -name 'br-*' \) 2>/dev/null | wc -l; }
 
 free_mb() { awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo; }
 
@@ -928,7 +974,7 @@ cmd_deploy() {
       exit 4
     }
     if (($(pr_env_count) >= MAX_ENVS)) && [[ ! -d $(env_dir "$name") ]]; then
-      log "limit reached: $MAX_ENVS PR environments"
+      log "limit reached: $MAX_ENVS PR and branch environments"
       exit 3
     fi
     if (($(free_mb) < MIN_FREE_MB)); then
@@ -1034,11 +1080,11 @@ cmd_backup() {
 }
 
 cmd_prune() {
-  local open=" $* " dir name used image
-  for dir in "$ROOT"/envs/pr-*; do
+  local keep=" $* " dir name used image
+  for dir in "$ROOT"/envs/pr-* "$ROOT"/envs/br-*; do
     [[ -d $dir ]] || continue
     name=$(basename "$dir")
-    [[ $open == *" ${name#pr-} "* ]] || cmd_destroy "$name"
+    [[ $keep == *" ${name#pr-} "* || $keep == *" $name "* ]] || cmd_destroy "$name"
   done
   used=$(cat "$ROOT"/envs/*/tag 2>/dev/null | sort -u || true)
   for image in $(docker images --filter "label=tailnet-preview.project=$PROJECT" --format '{{.Repository}}:{{.Tag}}'); do
@@ -1372,6 +1418,7 @@ main() {
       compose_env "$name" "$@"
       ;;
     host-check) cmd_host_check ;;
+    branch-env) cmd_branch_env "$@" ;;
     ingress)
       [[ $INGRESS == shared ]] || die "the host does not use the shared ingress (TP_INGRESS=shared, docs/host-setup.md)"
       case ${1:-} in
@@ -1386,7 +1433,7 @@ main() {
       esac
       ;;
     version) echo "$VERSION" ;;
-    -h | --help | help) sed -n '2,27p' "$0" | sed -E 's/^# ?//' ;;
+    -h | --help | help) sed -n '2,31p' "$0" | sed -E 's/^# ?//' ;;
     *)
       sed -n '2,26p' "$0" | sed -E 's/^# ?//' >&2
       exit 1

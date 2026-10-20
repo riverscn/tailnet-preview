@@ -2,7 +2,7 @@
 
 [English](CONTRIBUTING.md)
 
-感谢帮忙。最有用的是附上 `tailnet-preview doctor <env>` 输出的问题报告（输出里的密钥已隐去）。
+感谢帮忙。最有用的是附上 `tailnet-preview doctor <env>` 输出的问题报告（输出里的密钥已隐去）。想在动手之前先讨论一个改动，或者有问题要问，欢迎加入 [Discord 服务器](https://discord.gg/mCevCGR9Pc)。
 
 ## 基本规则
 
@@ -19,6 +19,7 @@
 shellcheck bin/tailnet-preview test/*.sh test/fake-tailscale/tailscale example/app/handler.sh
 node --test 'test/*.test.mjs'          # PR 评论的渲染
 test/integration.sh                     # 用 Docker 和假的 Tailscale 测试引擎（需要几分钟）
+test/ingress.sh                         # 共享入口：Traefik、CoreDNS、假 Tailscale
 test/action.sh                          # action 的部署判断
 npx prettier@3.9.9 --check .
 ```
@@ -36,5 +37,5 @@ npx prettier@3.9.9 --check .
 
 ## 发布
 
-1. 用一个 PR 把 `CHANGELOG.md` 里的 "Unreleased" 改名为 `## X.Y.Z - <date>`（在它上方新建一个空的 "Unreleased"），并更新 `README.md`、`README.zh-CN.md`、`docs/project-setup.md`、`docs/design.md` 以及它们的 `.zh-CN.md` 版本里固定的版本号。
+1. 用一个 PR 把 `CHANGELOG.md` 里的 "Unreleased" 改名为 `## X.Y.Z - <date>`（在它上方新建一个空的 "Unreleased"），并更新 `README.md`、`README.zh-CN.md`、`docs/repository-setup.md`、`docs/design.md` 以及它们的 `.zh-CN.md` 版本里固定的版本号。
 2. 合并后，在 `main` 上用版本号 `X.Y.Z` 运行 **Release** 工作流。它会检查 changelog，创建标签 `vX.Y.Z` 和带有这个版本说明的 GitHub release；从 1.0.0 起，还会移动主版本标签 `vX`。

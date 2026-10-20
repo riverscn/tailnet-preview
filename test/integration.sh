@@ -321,10 +321,33 @@ archives=("$TP_HOME"/tp-itest/backups/main-*/db-data.tar.gz)
 listing=$(tar tzf "${archives[0]}")
 grep -q PG_VERSION <<<"$listing" || fatal "backup archive"
 ok "backup archive of db-data written"
-run prune 2
-expect_rc 0 "prune keeps open PR 2"
-[[ ! -d $TP_HOME/tp-itest/envs/pr-1 && -d $TP_HOME/tp-itest/envs/pr-2 ]] || fatal "prune removed pr-1 only"
+run branch-env feature/Login
+[[ $OUT == br-feature-login ]] || fatal "branch-env of feature/Login: $OUT"
+run branch-env --match 'release/* feature/*' feature/Login
+[[ $RC == 0 && $OUT == br-feature-login ]] || fatal "branch-env --match feature/*: rc $RC, $OUT"
+run branch-env --match 'release/*' feature/Login
+expect_rc 1 "branch-env --match fails for a branch that does not match"
+long=feature/$(printf 'x%.0s' {1..80})
+run branch-env "$long"
+((${#OUT} + ${#TP_PROJECT} < 64)) || fatal "long branch name too long: $OUT"
+[[ $OUT =~ ^br-feature-x+-[0-9a-f]{6}$ ]] || fatal "long branch name shortened with a hash: $OUT"
+ok "branch-env: lower case, other characters as -, long names shortened with a hash"
+run deploy br-feature-login --tag "$TAG"
+expect_rc 0 "deploy a branch environment"
+[[ $(mode br-feature-login) == forked ]] || fatal "a branch environment is forked from the baseline: $(mode br-feature-login)"
+[[ $OUT == https://tp-itest-br-feature-login.* ]] || fatal "branch environment URL: $OUT"
+ok "a branch environment is a copy of the baseline like a PR environment"
+run deploy br-Bad_Name --tag "$TAG"
+expect_rc 1 "an invalid environment name is refused"
+run prune 2 br-feature-login
+expect_rc 0 "prune keeps open PR 2 and the listed branch environment"
+[[ ! -d $TP_HOME/tp-itest/envs/pr-1 && -d $TP_HOME/tp-itest/envs/pr-2 && -d $TP_HOME/tp-itest/envs/br-feature-login ]] ||
+  fatal "prune removed pr-1 only"
 ok "prune removed the closed PR"
+run prune 2
+expect_rc 0 "prune without the branch environment"
+[[ ! -d $TP_HOME/tp-itest/envs/br-feature-login && -d $TP_HOME/tp-itest/envs/pr-2 ]] || fatal "prune removed the branch environment"
+ok "prune removes branch environments that are not listed"
 main_url=$("$TP" url main)
 run reset main --tag "$TAG"
 expect_rc 0 "reset main"

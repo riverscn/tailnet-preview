@@ -1,6 +1,6 @@
 # End-to-end test on a real preview host, with the example project: the baseline follows main, every PR
 # gets an environment copied from it, closing the PR removes it. It is also a complete example of the
-# workflow a project adds (docs/project-setup.md). Skipped unless the repository variable
+# workflow a project adds (docs/repository-setup.md). Skipped unless the repository variable
 # PREVIEW_ENABLED is "true".
 name: Preview
 

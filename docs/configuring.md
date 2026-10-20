@@ -7,8 +7,11 @@ person or an AI coding agent can follow from top to bottom: every step says **wh
 project and **what to write**. The result is a `.tailnet-preview/` directory that passes
 `tailnet-preview validate` and a local smoke test.
 
+Working with an AI agent? Give it this guide; [agent-guide.md](agent-guide.md) puts it in the context of
+the whole setup.
+
 Reference for every key and variable: [design.md section 5](design.md#5-project-configuration). Workflow
-and repository settings come afterwards: [project-setup.md](project-setup.md).
+and repository settings come afterwards: [repository-setup.md](repository-setup.md).
 
 > **For AI agents.** Work through the steps in order. Do not invent values you cannot find in the
 > repository; leave a `TODO` and ask. Never put real credentials, production hostnames or real user data in
@@ -22,11 +25,27 @@ and repository settings come afterwards: [project-setup.md](project-setup.md).
   needs a Dockerfile first; that is a change to the project, not to its preview configuration.
 - The application reads its settings from **environment variables**, at least its public URL and its
   database connection. If a setting is hard-coded, making it configurable is a project change.
+- Preview environments run the project's **production images with production settings**, plus what makes
+  them safe to share: mock SMS or payment providers, demo data, a mail catcher (step 6). Never point a
+  preview environment at real user data.
 
 ## 1. Start from the generated skeleton
 
+The `tailnet-preview` command is the engine in this repository's `bin/`. It runs on Linux with Docker (not
+on macOS: it needs the GNU tools). On the preview host it is already installed if you followed
+[host-setup.md step 2.5](host-setup.md#2-the-machine-once); on another Linux machine, install it the same
+way:
+
 ```bash
-tailnet-preview init          # from the repository root; writes .tailnet-preview/config.env and compose.yaml
+git clone --depth 1 https://github.com/riverscn/tailnet-preview ~/tailnet-preview
+echo 'export PATH="$HOME/tailnet-preview/bin:$PATH"' >> ~/.bashrc && . ~/.bashrc
+```
+
+In CI the action brings its own copy; nothing is installed there. Check out your project's repository on
+the same machine, then run from its root directory:
+
+```bash
+tailnet-preview init          # writes .tailnet-preview/config.env and compose.yaml
 ```
 
 `init` lists the Dockerfiles it finds in `IMAGES` and, if the repository has a compose file at its root
@@ -39,7 +58,8 @@ tailnet-preview init          # from the repository root; writes .tailnet-previe
 `*.Dockerfile`); CI or deployment scripts that run `docker build`.
 
 **Write:** one `name=path` per image, path relative to the repository root, which is also the build
-context. Use the image in compose as `${TP_IMAGE_<NAME>}`.
+context. Use the image in compose as `${TP_IMAGE_<NAME>}`, the name in upper case with `-` as `_`: `api`
+becomes `${TP_IMAGE_API}`, `admin-web` becomes `${TP_IMAGE_ADMIN_WEB}`.
 
 ```sh
 IMAGES=api=apps/api/Dockerfile web=apps/web/Dockerfile
@@ -53,7 +73,8 @@ Images the project only pulls (`postgres`, `redis`) do not belong here.
 file that runs only dependencies (database, cache) for local development is still useful: reuse it and add
 the application's services in the override.
 
-**If such a file exists**, reuse it unchanged and override only what differs:
+**If such a file exists**, reuse it unchanged and override only what differs. An override is a second
+compose file that Compose merges over the first, key by key, so it contains only the changes:
 
 ```sh
 COMPOSE_FILES=../compose.yaml compose.yaml
@@ -88,8 +109,8 @@ other (for example nginx proxying `/api/`), exactly as in production.
 
 ## 5. The application's own address: `TP_URL`
 
-Each environment has its own address, `https://<project>-<env>.<tailnet>.ts.net`, available as
-`${TP_URL}`. Applications need it for login redirects, cookies, CORS and links in e-mails.
+Each environment has its own address, available as `${TP_URL}`: `https://<project>-<env>.<tailnet>.ts.net`,
+or `https://<project>-<env>.<domain>` on a host with the shared ingress. Applications need it for login redirects, cookies, CORS and links in e-mails.
 
 **Look for:** every setting that contains the public URL or the host name: `APP_URL`, `BASE_URL`,
 `PUBLIC_URL`, `NEXTAUTH_URL`, `BETTER_AUTH_URL`, `ALLOWED_ORIGINS`, `CORS_ORIGIN`, `TRUSTED_ORIGINS`,
@@ -130,7 +151,9 @@ DATA_VOLUMES=none              # every PR starts with empty data and runs the se
 ```
 
 Passwords that the database and the application share go into `SECRETS` and are used by name in compose.
-They are generated once per project and identical in every environment, which a copied database requires:
+You only write their names: the engine generates random values on the first deploy, stores them on the
+host (`~/previews/<project>/secrets.env`) and uses the same values in every environment, which a copied
+database requires:
 
 ```sh
 SECRETS=DB_PASSWORD SESSION_SECRET
@@ -152,9 +175,14 @@ services:
 head`, …) and a seed or fixtures command. If the application migrates by itself on start, no `migrate` task
 is needed.
 
-**Write** them as services in the `tasks` profile, run with `docker compose run --rm`:
+**Write** them as services in the `tasks` profile, run with `docker compose run --rm`. They usually need
+the same environment variables as the application; a YAML anchor (`&env`, used as `*env`) avoids
+repeating them:
 
 ```yaml
+x-env: &env # the application's variables, shared by its services and tasks
+  DATABASE_URL: postgres://app:${DB_PASSWORD}@db:5432/app
+
 services:
   migrate:
     image: ${TP_IMAGE_API}
@@ -175,7 +203,8 @@ services:
 ```
 
 `migrate` runs before every deploy; `seed` runs only when an environment starts with empty data. Demo data
-must be fictional; mention its accounts in `comment.md` so reviewers can log in.
+must be fictional. Put its accounts in `.tailnet-preview/comment.md`, a Markdown file whose text is added
+to every PR comment, so reviewers know how to log in.
 
 ## 9. Check it
 
@@ -189,17 +218,15 @@ which volumes are copied, fixed volume names, tasks, and whether `TP_URL`, the i
 used. Fix every `ERROR`; read every `WARN`.
 
 Then run it once on a machine with Docker, without a tailnet, using the fake Tailscale sidecar of the test
-suite:
+suite. The settings below keep it apart from a real host's configuration and environments:
 
 ```bash
-git clone --depth 1 https://github.com/riverscn/tailnet-preview /tmp/tailnet-preview
-docker build -t tp-fake-tailscale /tmp/tailnet-preview/test/fake-tailscale
-export TP_TS_IMAGE=tp-fake-tailscale TS_OAUTH_SECRET=fake TP_HOME=$(mktemp -d)
-TP=/tmp/tailnet-preview/bin/tailnet-preview
-$TP build && $TP deploy main          # builds, migrates, seeds, waits for HEALTH_PATH
-$TP doctor main                       # every upstream should answer "ok"
-$TP compose main exec ts wget -qO- http://web:80/   # replace with your HTTP upstream
-$TP destroy main --force
+docker build -t tp-fake-tailscale ~/tailnet-preview/test/fake-tailscale
+export TP_TS_IMAGE=tp-fake-tailscale TS_OAUTH_SECRET=fake TP_HOME=$(mktemp -d) TP_INGRESS=sidecar TP_HOST_CONFIG=/dev/null
+tailnet-preview build && tailnet-preview deploy main          # builds, migrates, seeds, waits for HEALTH_PATH
+tailnet-preview doctor main                                   # every upstream should answer "ok"
+tailnet-preview compose main exec ts wget -qO- http://web:80/ # replace with your HTTP upstream
+tailnet-preview destroy main --force
 ```
 
 `deploy` fails with a reason (`migrate`, `seed`, `health`, …) and prints the services' logs when something

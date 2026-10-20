@@ -4,6 +4,35 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+## 0.4.0 - 2026-10-20
+
+### Added
+
+- Action inputs to choose what gets an environment. `drafts: false` skips draft pull requests until they are
+  ready for review (the default deploys them, as before). `branches` gives branches without a pull request
+  an environment of their own, `br-<branch>`: none by default, `*` for every branch, or globs such as
+  `release/* feature/*`. A branch environment is removed when its branch is deleted (the `delete` event),
+  gets a pull request, or no longer matches (by `nightly`). A skipped deploy succeeds and says why in the
+  job summary. Engine: `branch-env`, and `prune` keeps listed `br-` environments.
+- `MAX_ENVS` counts branch environments too.
+
+### Changed
+
+- Documentation: `docs/project-setup.md` is now `docs/repository-setup.md` and covers only what happens in the
+  repository (the variable, the workflow, the first pull request); what it repeated from `configuring.md` is
+  gone. `configuring.md` says how to get the `tailnet-preview` command, and its local smoke test no longer
+  picks up a real host's settings. The README is reorganised for a first-time reader: what you need, four
+  steps to a first preview, then how it works and the options.
+- The setup guides say, for each step, where it is done, as which user, what it produces, which later step
+  uses it and how to check it: the OAuth client secret of host setup step 1.3 is `TS_OAUTH_SECRET` in step
+  2.4; Docker group membership; the `tailnet-preview` command on `PATH`; registering the runner and
+  checking it is Idle; the repository variable and secret; what happens on the first pull request.
+- `docs/agent-guide.md`: a playbook for an AI agent that sets previews up for a person, phase by phase, with
+  who does each step (the person, the agent, or the agent after asking), a check for every step, and the
+  rule that secrets never go through the chat. `AGENTS.md` (and `CLAUDE.md`) point agents to it, or to
+  CONTRIBUTING.md for changes to tailnet-preview; the README says to give an agent the repository's URL.
+- A project icon (`assets/icon.svg`, PNGs at 256 and 512 px), at the top of both READMEs.
+
 ## 0.3.0 - 2026-10-19
 
 ### Added

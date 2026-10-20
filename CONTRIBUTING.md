@@ -3,7 +3,8 @@
 [简体中文](CONTRIBUTING.zh-CN.md)
 
 Thanks for helping. Bug reports with the output of `tailnet-preview doctor <env>` (secrets are redacted)
-are the most useful kind.
+are the most useful kind. To talk a change through before writing it, or for questions, join the
+[Discord server](https://discord.gg/mCevCGR9Pc).
 
 ## Ground rules
 
@@ -23,6 +24,7 @@ You need Docker, Node.js 22, shellcheck, yq and (for workflows) actionlint.
 shellcheck bin/tailnet-preview test/*.sh test/fake-tailscale/tailscale example/app/handler.sh
 node --test 'test/*.test.mjs'          # PR comment rendering
 test/integration.sh                     # engine against Docker, fake Tailscale (a few minutes)
+test/ingress.sh                         # the shared ingress: Traefik, CoreDNS, fake Tailscale
 test/action.sh                          # the action's deploy decisions
 npx prettier@3.9.9 --check .
 ```
@@ -47,7 +49,7 @@ deploys the example on the maintainers' preview host for every pull request from
 
 1. A pull request renames "Unreleased" in `CHANGELOG.md` to `## X.Y.Z - <date>` (with a new empty
    "Unreleased" above it) and updates the pinned version in `README.md`, `README.zh-CN.md`,
-   `docs/project-setup.md`, `docs/design.md` and their `.zh-CN.md` versions.
+   `docs/repository-setup.md`, `docs/design.md` and their `.zh-CN.md` versions.
 2. After it is merged, run the **Release** workflow on `main` with the version `X.Y.Z`. It checks the
    changelog, creates the tag `vX.Y.Z` and a GitHub release with that version's notes and, from 1.0.0,
    moves the major tag `vX`.
