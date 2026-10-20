@@ -14,6 +14,14 @@ All notable changes are documented here. The project follows [Semantic Versionin
   job summary. Engine: `branch-env`, and `prune` keeps listed `br-` environments.
 - `MAX_ENVS` counts branch environments too.
 
+### Changed
+
+- Documentation: `docs/project-setup.md` is now `docs/repository-setup.md` and covers only what happens in the
+  repository (the variable, the workflow, the first pull request); what it repeated from `configuring.md` is
+  gone. `configuring.md` says how to get the `tailnet-preview` command, and its local smoke test no longer
+  picks up a real host's settings. The README is reorganised for a first-time reader: what you need, four
+  steps to a first preview, then how it works and the options.
+
 ## 0.3.0 - 2026-10-19
 
 ### Added

@@ -36,5 +36,5 @@ npx prettier@3.9.9 --check .
 
 ## 发布
 
-1. 用一个 PR 把 `CHANGELOG.md` 里的 "Unreleased" 改名为 `## X.Y.Z - <date>`（在它上方新建一个空的 "Unreleased"），并更新 `README.md`、`README.zh-CN.md`、`docs/project-setup.md`、`docs/design.md` 以及它们的 `.zh-CN.md` 版本里固定的版本号。
+1. 用一个 PR 把 `CHANGELOG.md` 里的 "Unreleased" 改名为 `## X.Y.Z - <date>`（在它上方新建一个空的 "Unreleased"），并更新 `README.md`、`README.zh-CN.md`、`docs/repository-setup.md`、`docs/design.md` 以及它们的 `.zh-CN.md` 版本里固定的版本号。
 2. 合并后，在 `main` 上用版本号 `X.Y.Z` 运行 **Release** 工作流。它会检查 changelog，创建标签 `vX.Y.Z` 和带有这个版本说明的 GitHub release；从 1.0.0 起，还会移动主版本标签 `vX`。

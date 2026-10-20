@@ -1,45 +1,14 @@
-# Project setup
+# Repository setup
 
-[简体中文](project-setup.zh-CN.md)
+[简体中文](repository-setup.zh-CN.md)
 
-Adopting tailnet-preview in a repository takes a configuration directory and one workflow. The
-[example](../example/) is a complete minimal project; the reference for every setting is
+The last step of adopting tailnet-preview: turn previews on for the repository and add the workflow that
+deploys them. Before this, the host is ready ([host-setup.md](host-setup.md)) and the project has a
+`.tailnet-preview/` directory that passes `tailnet-preview validate` ([configuring.md](configuring.md)).
+The [example](../example/) is a complete minimal project; every setting is described in
 [design.md section 5](design.md#5-project-configuration).
 
-Prerequisite: a prepared host ([host-setup.md](host-setup.md)).
-
-## 1. Prepare the application
-
-Preview environments run the project's production images with production settings, plus whatever makes
-them safe to share: mock SMS or payment providers, demo data, a mail catcher. The application must read
-its public URL and its database connection from environment variables. Never point a preview environment
-at real user data.
-
-## 2. Write `.tailnet-preview/`
-
-Follow [configuring.md](configuring.md): it goes step by step through images, compose files, the entry
-point, the application's address, mocks, data and tasks, and ends with `tailnet-preview validate` and a
-local smoke test. In short, for a project that already has a compose file:
-
-```
-.tailnet-preview/
-  config.env       IMAGES, COMPOSE_FILES, HTTP, HEALTH_PATH, SECRETS (DATA_VOLUMES defaults to every named volume)
-  compose.yaml     an override of the project's compose file: built images, TP_URL, mocks, migrate/seed tasks
-  comment.md       optional: demo accounts and hints for the PR comment
-```
-
-```sh
-IMAGES=api=apps/api/Dockerfile web=apps/web/Dockerfile
-COMPOSE_FILES=../compose.yaml compose.yaml
-HTTP=web:80
-HEALTH_PATH=/api/health
-SECRETS=DB_PASSWORD SESSION_SECRET
-```
-
-The [example](../example/) is a complete project in this shape: `example/compose.yaml` is its own compose
-file, unchanged; `example/.tailnet-preview/` adds what previews need.
-
-## 3. Enable it for the repository
+## 1. Enable it for the repository
 
 - Settings → Secrets and variables → Actions → **Variables**: `PREVIEW_ENABLED` = `true`. Until then, the
   workflow's jobs are skipped instead of waiting for a runner.
@@ -47,7 +16,7 @@ file, unchanged; `example/.tailnet-preview/` adds what previews need.
 - If `riverscn/tailnet-preview` is private to you, allow access to it from your other repositories
   (in its Settings → Actions → General → Access).
 
-## 4. Add the workflow
+## 2. Add the workflow
 
 `.github/workflows/preview.yml`:
 
@@ -150,7 +119,7 @@ a pull request: empty by default, `*` for every branch, or globs such as `releas
 has no PR comment, its address is in the job summary. Which pull requests and branches get an
 environment: design.md section 3.
 
-## 5. The first pull request
+## 3. The first pull request
 
 The PR that adds `.tailnet-preview/` cannot copy a baseline: the default branch does not use
 tailnet-preview yet. Its environment is created with empty volumes (migrate, then seed), and the PR comment

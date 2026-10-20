@@ -8,7 +8,7 @@ project and **what to write**. The result is a `.tailnet-preview/` directory tha
 `tailnet-preview validate` and a local smoke test.
 
 Reference for every key and variable: [design.md section 5](design.md#5-project-configuration). Workflow
-and repository settings come afterwards: [project-setup.md](project-setup.md).
+and repository settings come afterwards: [repository-setup.md](repository-setup.md).
 
 > **For AI agents.** Work through the steps in order. Do not invent values you cannot find in the
 > repository; leave a `TODO` and ask. Never put real credentials, production hostnames or real user data in
@@ -22,11 +22,24 @@ and repository settings come afterwards: [project-setup.md](project-setup.md).
   needs a Dockerfile first; that is a change to the project, not to its preview configuration.
 - The application reads its settings from **environment variables**, at least its public URL and its
   database connection. If a setting is hard-coded, making it configurable is a project change.
+- Preview environments run the project's **production images with production settings**, plus what makes
+  them safe to share: mock SMS or payment providers, demo data, a mail catcher (step 6). Never point a
+  preview environment at real user data.
 
 ## 1. Start from the generated skeleton
 
+The `tailnet-preview` command is the engine in this repository's `bin/`. Get it on a Linux machine with
+Docker (the preview host will do); it needs nothing else. In CI the action brings its own copy.
+
 ```bash
-tailnet-preview init          # from the repository root; writes .tailnet-preview/config.env and compose.yaml
+git clone --depth 1 https://github.com/riverscn/tailnet-preview ~/tailnet-preview
+export PATH="$HOME/tailnet-preview/bin:$PATH"
+```
+
+Then, from the root of your project's repository:
+
+```bash
+tailnet-preview init          # writes .tailnet-preview/config.env and compose.yaml
 ```
 
 `init` lists the Dockerfiles it finds in `IMAGES` and, if the repository has a compose file at its root
@@ -189,17 +202,15 @@ which volumes are copied, fixed volume names, tasks, and whether `TP_URL`, the i
 used. Fix every `ERROR`; read every `WARN`.
 
 Then run it once on a machine with Docker, without a tailnet, using the fake Tailscale sidecar of the test
-suite:
+suite. The settings below keep it apart from a real host's configuration and environments:
 
 ```bash
-git clone --depth 1 https://github.com/riverscn/tailnet-preview /tmp/tailnet-preview
-docker build -t tp-fake-tailscale /tmp/tailnet-preview/test/fake-tailscale
-export TP_TS_IMAGE=tp-fake-tailscale TS_OAUTH_SECRET=fake TP_HOME=$(mktemp -d)
-TP=/tmp/tailnet-preview/bin/tailnet-preview
-$TP build && $TP deploy main          # builds, migrates, seeds, waits for HEALTH_PATH
-$TP doctor main                       # every upstream should answer "ok"
-$TP compose main exec ts wget -qO- http://web:80/   # replace with your HTTP upstream
-$TP destroy main --force
+docker build -t tp-fake-tailscale ~/tailnet-preview/test/fake-tailscale
+export TP_TS_IMAGE=tp-fake-tailscale TS_OAUTH_SECRET=fake TP_HOME=$(mktemp -d) TP_INGRESS=sidecar TP_HOST_CONFIG=/dev/null
+tailnet-preview build && tailnet-preview deploy main          # builds, migrates, seeds, waits for HEALTH_PATH
+tailnet-preview doctor main                                   # every upstream should answer "ok"
+tailnet-preview compose main exec ts wget -qO- http://web:80/ # replace with your HTTP upstream
+tailnet-preview destroy main --force
 ```
 
 `deploy` fails with a reason (`migrate`, `seed`, `health`, …) and prints the services' logs when something

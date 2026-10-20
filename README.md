@@ -4,30 +4,67 @@
 
 [简体中文](README.zh-CN.md)
 
-Open a pull request and a full copy of your application starts on a machine you own: its own containers,
-its own data **copied from a long-lived baseline**, and an HTTPS address like
-`https://myapp-pr-42.your-tailnet.ts.net` (or `https://myapp-pr-42.preview.example.com` with a domain of
-yours, see [two modes](#two-modes)) that only devices in your [Tailscale](https://tailscale.com) network
-can open. Push to the PR and it upgrades in place; close the PR and it is gone. A comment on the PR
-says where it is, or exactly what went wrong and how to fix it.
+Open a pull request and a complete copy of your application starts on a machine you own, with its own
+database copied from a long-lived **baseline** of your default branch. You get a private HTTPS address that
+only devices in your [Tailscale](https://tailscale.com) network can open. Every push to the PR updates it,
+and closing the PR removes it. A comment on the PR says where it is, or what went wrong and how to fix it.
 
 ```
-pull request ──▶ GitHub Actions (self-hosted runner on your machine)
-                   │  build images · copy the baseline database · run migrations · start services
+pull request ──▶ GitHub Actions on your machine (self-hosted runner)
+                   │  build images · copy the baseline's data · run the PR's migrations · start
                    ▼
-   https://myapp-pr-42.<tailnet>.ts.net      only your tailnet, no public ingress
+   https://myapp-pr-42.<your tailnet>.ts.net      private to your tailnet, nothing on the internet
 ```
 
-## Why
+- **Realistic upgrades.** Each PR starts from a copy of real (demo) data and runs its own migrations, the way
+  production will. Bugs that only show up on an existing database appear before you merge.
+- **Private.** No public port, tunnel or login page: only your tailnet can reach the environments.
+- **Cheap.** Any Linux box with Docker, such as a home server or a spare VM. One machine serves many projects.
+- **Any stack.** Bash and Docker Compose. Your database is just a service in your compose file.
 
-- **Realistic upgrades.** A PR environment starts from a copy of the baseline's data and runs the PR's
-  migrations, the way production will. Bugs that only appear on an existing database show up before merge.
-- **Private by construction.** Environments are reachable only through your tailnet, over HTTPS. There is
-  no public port, tunnel, or login page to protect.
-- **Cheap.** Any Linux box with Docker: a home server, a spare VM. One machine serves many projects; the
-  machine needs no per-project setup.
-- **Plain tools, any stack.** Bash and Docker Compose. Your database is a service in your own
-  `compose.yaml`, whatever it is; data is copied as Docker volumes. No cluster, no control plane.
+## What you need
+
+- A **Linux machine with Docker** that stays on, with a few GB of free memory (each environment runs its
+  own copy of every service).
+- A **Tailscale account**. The free plan works.
+- A **GitHub repository** you control, private or with the precautions in [security](docs/security.md).
+  Anyone who can push to it can run code on the machine.
+- An application that **runs in containers**, ideally with a compose file already, and reads its URL and
+  database connection from environment variables.
+
+## Get started
+
+**1. Prepare the machine and the tailnet** (once, about 30 minutes) → [host-setup.md](docs/host-setup.md)
+
+You turn on HTTPS certificates and a `tag:preview` access rule in Tailscale, create an OAuth client, and
+install Docker and a GitHub Actions runner labelled `preview`. When you are done, `tailnet-preview
+host-check` reports no `FAIL`.
+
+**2. Describe your application in `.tailnet-preview/`** (per project) → [configuring.md](docs/configuring.md)
+
+A small `config.env` and a compose override: which images to build, which service the browser opens, the
+application's own URL, mock providers, migrate and seed tasks. Your existing compose file stays as it is.
+`tailnet-preview init` writes a first draft and `tailnet-preview validate` checks it. The guide is a
+step-by-step procedure that an AI coding agent can also follow.
+
+**3. Turn it on for the repository** (per project, a few minutes) → [repository-setup.md](docs/repository-setup.md)
+
+Set the repository variable `PREVIEW_ENABLED=true` and copy the workflow file from that page.
+
+**4. Open a pull request**
+
+The PR that adds `.tailnet-preview/` gets an environment with fresh demo data, because there is no
+baseline yet. Merging it creates the baseline. From then on every PR starts from a copy of the baseline,
+and its comment shows the address:
+
+> **Preview environment ready** (copied from the baseline)
+>
+> | Service     | Address                                 |
+> | ----------- | --------------------------------------- |
+> | Application | https://myapp-pr-42.your-tailnet.ts.net |
+
+To see a complete, minimal setup first, look at the [example](example/). This repository deploys it on every
+pull request as its own end-to-end test.
 
 ## How it works
 
@@ -35,59 +72,36 @@ pull request ──▶ GitHub Actions (self-hosted runner on your machine)
 | ------------------------ | ------------------------------------------------------------------------------------ | ---------------------------------------- |
 | `main`, the baseline     | Created once (migrate + seed), then upgraded by every push to the default branch     | Long-lived                               |
 | `pr-<number>`            | A copy of the baseline's data volumes (database, uploads…), then the PR's migrations | Until the PR closes                      |
-| `br-<branch>` (optional) | The same, for a branch without a PR, when the workflow opts in (`branches`)          | Until the branch is deleted or gets a PR |
+| `br-<branch>` (optional) | The same, for a branch without a PR, when the workflow opts in                       | Until the branch is deleted or gets a PR |
 
-Each environment is a Docker Compose project: your services, database included. HTTPS in front of them
-comes from the host's mode, below. To fork, the engine pauses the baseline for a few seconds and copies
-the volumes you list in `DATA_VOLUMES`. Details: [docs/design.md](docs/design.md).
+Each environment is a Docker Compose project with your services, database included. To copy the
+baseline, the engine pauses it for a few seconds and copies its data volumes. Details:
+[design.md](docs/design.md).
 
-## Two modes
+## Options
 
-How environments are reached is a setting of the host (`TP_INGRESS`), the same for every project on it.
-Projects do not change between them.
+**Which PRs and branches get an environment.** By default every pull request does, drafts included, and
+branches without a PR don't. In the workflow, `drafts: false` waits until a PR is ready for review, and
+`branches: 'release/* feature/*'` (or `'*'`) also gives matching branches their own environment
+([repository-setup.md](docs/repository-setup.md#2-add-the-workflow)).
 
-|                | `sidecar` (default)                                                                                           | `shared`                                                                                             |
-| -------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| In the tailnet | One Tailscale node per environment (a sidecar container); the baseline's is persistent                        | One node per host, the ingress, with Traefik and CoreDNS; environments are not nodes                 |
-| Address        | `https://<project>-<env>.<tailnet>.ts.net`                                                                    | `https://<project>-<env>.<your domain>`                                                              |
-| Certificate    | One per environment, requested during the deploy                                                              | One wildcard certificate per host, issued and renewed by the ingress, apart from deploys             |
-| Needs          | Tailscale only                                                                                                | Also a domain whose DNS provider has an API, a split DNS entry in the tailnet, port 53 in the policy |
-| Weak point     | Per-node certificates often fail at first (Tailscale's DNS validation is racy); the sidecar retries for a day | A host-wide component: if the ingress stops, no environment is reachable                             |
+**How environments are reached.** This is a setting of the machine (`TP_INGRESS`), the same for every
+project on it:
 
-Choose `sidecar` to try it out without a domain, `shared` when previews must be reliable. Switching is a
-host setting plus a redeploy of each environment; addresses change, data does not
-([host-setup.md section 4](docs/host-setup.md#4-shared-ingress-optional-once-per-host)). Once Tailscale
-grants wildcard certificates for a node's subdomains, `shared` will work with `*.<ingress>.<tailnet>.ts.net`
-and no domain of your own ([design.md section 10](docs/design.md#10-shared-ingress-one-per-host-one-wildcard-certificate)).
+|              | `sidecar` (default)                                                                             | `shared`                                                                     |
+| ------------ | ----------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Address      | `https://<project>-<env>.<tailnet>.ts.net`                                                      | `https://<project>-<env>.<your domain>`                                      |
+| How          | Each environment is its own Tailscale node with its own certificate                             | One entry point per machine with one wildcard certificate                    |
+| Needs        | Nothing beyond Tailscale                                                                        | A domain whose DNS provider has an API, and a split DNS entry in the tailnet |
+| Keep in mind | A new environment's certificate is often only issued on a later retry, minutes after the deploy | If the entry point stops, no environment on the machine is reachable         |
 
-## Quick start
+Start with `sidecar`. Switch to `shared` when previews must work right away
+([host-setup.md section 4](docs/host-setup.md#4-shared-ingress-optional-once-per-host)). Switching keeps the
+data and changes the addresses.
 
-1. **Prepare the tailnet and the host once:** enable HTTPS certificates, add a `tag:preview` policy,
-   create an OAuth client, install Docker and a self-hosted runner labelled `preview`; for the shared
-   ingress, also a domain's DNS token and a split DNS entry.
-   → [docs/host-setup.md](docs/host-setup.md)
-2. **Add `.tailnet-preview/` to your project:** your existing compose file is reused unchanged; you add
-   which images to build, the entry point, the application's own URL, mocks and migrate/seed tasks.
-   `tailnet-preview init` writes a starting point and `tailnet-preview validate` checks it. A step-by-step
-   guide, written so that a person or an AI agent can follow it: → [docs/configuring.md](docs/configuring.md)
-3. **Add a workflow** that calls the action:
+## Day to day
 
-   ```yaml
-   - uses: actions/checkout@v7
-   - uses: riverscn/tailnet-preview@v0.3.0
-     with:
-       command: deploy
-   ```
-
-   A complete workflow (deploy, destroy on close, nightly backup and cleanup, manual commands) is in
-   [docs/project-setup.md](docs/project-setup.md#4-add-the-workflow).
-
-The [example](example/) is a complete, minimal project: this repository deploys it on every pull request
-as its own end-to-end test.
-
-## Commands
-
-The engine also works by hand on the host:
+Everything runs from GitHub Actions. On the machine, the same engine helps when something looks wrong:
 
 ```console
 $ tailnet-preview list
@@ -97,26 +111,28 @@ $ tailnet-preview doctor pr-42      # containers, Tailscale, HTTPS, upstreams, l
 $ tailnet-preview reset pr-42       # copy the baseline again
 ```
 
-All commands: [docs/design.md](docs/design.md#6-commands).
+When a deploy fails, the PR comment names the cause and the fix. All causes:
+[troubleshooting.md](docs/troubleshooting.md). All commands: [design.md](docs/design.md#6-commands).
 
 ## Documentation
 
-- [Design](docs/design.md): model, project configuration reference, commands, failure codes
-- [Host setup](docs/host-setup.md): tailnet, machine, runner
-- [Configuring a project](docs/configuring.md): writing `.tailnet-preview/`, step by step, for people and AI agents
-- [Project setup](docs/project-setup.md): repository settings and the workflow
-- [Troubleshooting](docs/troubleshooting.md): symptoms, causes, fixes
-- [Security](docs/security.md): what you trust when you run it
+In the order you need them:
 
-Every document also has a Simplified Chinese version next to it (`<name>.zh-CN.md`), linked at its top.
+1. [Host setup](docs/host-setup.md): the tailnet, the machine, the runner, optionally the shared entry point
+2. [Configuring a project](docs/configuring.md): writing `.tailnet-preview/`, step by step
+3. [Repository setup](docs/repository-setup.md): the repository variable, the workflow, the first pull request
+4. [Troubleshooting](docs/troubleshooting.md): symptoms, causes, fixes
+5. [Security](docs/security.md): what you trust when you run it, and public repositories
+6. [Design](docs/design.md): how it works, every setting and command, failure codes
+
+Every document has a Simplified Chinese version next to it (`<name>.zh-CN.md`), linked at its top.
 
 ## Status
 
-Pre-1.0 (0.x): in daily use by the multi-tenant SaaS project it was extracted from, on a home server.
-Minor versions may still change configuration or behaviour; read the [changelog](CHANGELOG.md) before
-upgrading and pin the full version. Linux hosts only. For private repositories, or public ones with care:
-pull requests from forks are never deployed (that would run untrusted code on your host), and a public
-repository needs settings of its own for its self-hosted runner; see [docs/security.md](docs/security.md).
+Pre-1.0 (0.x). It is in daily use by the multi-tenant SaaS project it was extracted from, on a home server.
+Minor versions may still change configuration or behaviour, so pin the full version (`@v0.3.0`) and read
+the [changelog](CHANGELOG.md) before upgrading. It supports Linux hosts only. Pull requests from forks are
+never deployed, and a public repository needs extra settings for its runner ([security](docs/security.md)).
 
 ## Contributing
 

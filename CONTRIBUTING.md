@@ -47,7 +47,7 @@ deploys the example on the maintainers' preview host for every pull request from
 
 1. A pull request renames "Unreleased" in `CHANGELOG.md` to `## X.Y.Z - <date>` (with a new empty
    "Unreleased" above it) and updates the pinned version in `README.md`, `README.zh-CN.md`,
-   `docs/project-setup.md`, `docs/design.md` and their `.zh-CN.md` versions.
+   `docs/repository-setup.md`, `docs/design.md` and their `.zh-CN.md` versions.
 2. After it is merged, run the **Release** workflow on `main` with the version `X.Y.Z`. It checks the
    changelog, creates the tag `vX.Y.Z` and a GitHub release with that version's notes and, from 1.0.0,
    moves the major tag `vX`.

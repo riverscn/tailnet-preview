@@ -4,7 +4,7 @@
 
 本指南把一个仓库改造成 tailnet-preview 能部署的样子。它写成一套流程，人或 AI 编码 agent 都能从头到尾照做：每一步都说明在项目里**看哪里**、**写什么**。最终得到一个 `.tailnet-preview/` 目录，能通过 `tailnet-preview validate` 和一次本地冒烟测试。
 
-所有配置项和变量的说明见 [design.md 第 5 节](design.zh-CN.md#5-项目配置)。工作流和仓库设置在这之后进行，见 [project-setup.md](project-setup.zh-CN.md)。
+所有配置项和变量的说明见 [design.md 第 5 节](design.zh-CN.md#5-项目配置)。工作流和仓库设置在这之后进行，见 [repository-setup.md](repository-setup.zh-CN.md)。
 
 > **给 AI agent。** 按顺序完成各步。仓库里找不到的值不要编造，留一个 `TODO` 并提问。配置里不要放真实凭据、生产环境的主机名或真实用户数据。不要改变项目在其他地方的运行方式：所有只和试用环境有关的内容都放进 `.tailnet-preview/`。[检查清单](#检查清单)全部完成即为结束。
 
@@ -12,8 +12,18 @@
 
 - 每个要运行的服务都是**用仓库里的 Dockerfile 构建的容器镜像**，或者公开镜像（数据库、缓存、邮件捕获工具）。只能用 `npm run dev` 之类命令运行的服务，要先补一个 Dockerfile；这是对项目本身的改动，不属于试用环境配置。
 - 应用从**环境变量**读取设置，至少包括它的公开地址和数据库连接。如果某项设置写死在代码里，把它改成可配置也是对项目本身的改动。
+- 试用环境运行项目的**生产镜像、使用生产配置**，再加上让它可以放心共享的东西：模拟的短信或支付服务、演示数据、邮件捕获工具（第 6 步）。不要让试用环境连接真实的用户数据。
 
 ## 1. 从生成的初稿开始
+
+`tailnet-preview` 命令就是本仓库 `bin/` 下的引擎。在一台装了 Docker 的 Linux 机器上获取它（试用主机就可以），不需要别的依赖。CI 里由 action 自带一份。
+
+```bash
+git clone --depth 1 https://github.com/riverscn/tailnet-preview ~/tailnet-preview
+export PATH="$HOME/tailnet-preview/bin:$PATH"
+```
+
+然后在你项目仓库的根目录执行：
 
 ```bash
 tailnet-preview init          # 在仓库根目录执行；生成 .tailnet-preview/config.env 和 compose.yaml
@@ -144,17 +154,15 @@ tailnet-preview validate
 
 它按部署时的方式合并 compose 文件，不构建也不启动任何东西，然后报告：镜像和 Dockerfile、合并了哪些文件以及相对路径解析到哪里、`HTTP` 和 `PORTS` 的服务、复制哪些数据卷、固定的数据卷名、任务，以及 `TP_URL`、镜像和密钥是否被用到。每个 `ERROR` 都要修好；每个 `WARN` 都要看一遍。
 
-然后在一台装了 Docker 的机器上实际跑一次。不需要 tailnet，用测试套件里的假 Tailscale sidecar：
+然后在一台装了 Docker 的机器上实际跑一次。不需要 tailnet，用测试套件里的假 Tailscale sidecar。下面的设置让它和真实主机的配置、环境互不干扰：
 
 ```bash
-git clone --depth 1 https://github.com/riverscn/tailnet-preview /tmp/tailnet-preview
-docker build -t tp-fake-tailscale /tmp/tailnet-preview/test/fake-tailscale
-export TP_TS_IMAGE=tp-fake-tailscale TS_OAUTH_SECRET=fake TP_HOME=$(mktemp -d)
-TP=/tmp/tailnet-preview/bin/tailnet-preview
-$TP build && $TP deploy main          # 构建、迁移、灌演示数据，并等待 HEALTH_PATH 就绪
-$TP doctor main                       # 每个上游都应回答 "ok"
-$TP compose main exec ts wget -qO- http://web:80/   # 换成你的 HTTP 上游
-$TP destroy main --force
+docker build -t tp-fake-tailscale ~/tailnet-preview/test/fake-tailscale
+export TP_TS_IMAGE=tp-fake-tailscale TS_OAUTH_SECRET=fake TP_HOME=$(mktemp -d) TP_INGRESS=sidecar TP_HOST_CONFIG=/dev/null
+tailnet-preview build && tailnet-preview deploy main          # 构建、迁移、灌演示数据，并等待 HEALTH_PATH 就绪
+tailnet-preview doctor main                                   # 每个上游都应回答 "ok"
+tailnet-preview compose main exec ts wget -qO- http://web:80/ # 换成你的 HTTP 上游
+tailnet-preview destroy main --force
 ```
 
 有服务起不来时，`deploy` 会失败并给出原因（`migrate`、`seed`、`health`……），同时打印各服务的日志。

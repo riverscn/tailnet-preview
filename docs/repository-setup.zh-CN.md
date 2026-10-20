@@ -1,43 +1,16 @@
-# 项目接入
+# 仓库设置
 
-[English](project-setup.md)
+[English](repository-setup.md)
 
-在一个仓库里接入 tailnet-preview，需要一个配置目录和一个工作流。[example](../example/) 是一个完整的最小项目；每项设置的说明见 [design.zh-CN.md 第 5 节 ](design.zh-CN.md#5-项目配置)。
+接入 tailnet-preview 的最后一步：为仓库打开试用环境，并加上部署它们的工作流。在这之前，主机已经准备好（[host-setup.zh-CN.md](host-setup.zh-CN.md)），项目里也有了能通过 `tailnet-preview validate` 的 `.tailnet-preview/` 目录（[configuring.zh-CN.md](configuring.zh-CN.md)）。[example](../example/) 是一个完整的最小项目；每项设置的说明见 [design.zh-CN.md 第 5 节](design.zh-CN.md#5-项目配置)。
 
-前提：一台准备好的主机（[host-setup.zh-CN.md](host-setup.zh-CN.md)）。
-
-## 1. 准备应用
-
-试用环境运行项目的生产镜像，使用生产配置，再加上让它可以放心共享的东西：模拟的短信或支付服务、演示数据、邮件捕获器。应用必须从环境变量读取自己的公开地址和数据库连接。不要让试用环境连接真实的用户数据。
-
-## 2. 编写 `.tailnet-preview/`
-
-按 [configuring.zh-CN.md](configuring.zh-CN.md) 操作：它一步步讲解镜像、compose 文件、网站入口、应用自己的地址、模拟服务、数据和任务，最后用 `tailnet-preview validate` 检查，并在本地做一次冒烟测试。简单来说，对已经有 compose 文件的项目：
-
-```
-.tailnet-preview/
-  config.env       IMAGES、COMPOSE_FILES、HTTP、HEALTH_PATH、SECRETS（DATA_VOLUMES 默认为所有具名数据卷）
-  compose.yaml     项目 compose 文件的覆盖：构建的镜像、TP_URL、模拟服务、migrate/seed 任务
-  comment.md       可选：PR 评论里的演示账号和提示
-```
-
-```sh
-IMAGES=api=apps/api/Dockerfile web=apps/web/Dockerfile
-COMPOSE_FILES=../compose.yaml compose.yaml
-HTTP=web:80
-HEALTH_PATH=/api/health
-SECRETS=DB_PASSWORD SESSION_SECRET
-```
-
-[example](../example/) 就是这种结构的完整项目：`example/compose.yaml` 是它自己的 compose 文件，没有改动；`example/.tailnet-preview/` 补上试用环境需要的内容。
-
-## 3. 为仓库启用
+## 1. 为仓库启用
 
 - Settings → Secrets and variables → Actions → **Variables**：设置 `PREVIEW_ENABLED` = `true`。设置之前，工作流的任务会直接跳过，而不是一直等待 runner。
 - 必须有一个标签为 `preview` 的 self-hosted runner 服务这个仓库（[host-setup.zh-CN.md](host-setup.zh-CN.md#3-runner每个仓库一次或每个组织一次)）。
 - 如果 `riverscn/tailnet-preview` 是你的私有仓库，要允许你的其他仓库访问它（在它的 Settings → Actions → General → Access 里设置）。
 
-## 4. 添加工作流
+## 2. 添加工作流
 
 `.github/workflows/preview.yml`：
 
@@ -131,6 +104,6 @@ action 的输入：`command`（`deploy`、`destroy`、`nightly`、`run`）、`co
 
 **分支环境**（`br-<分支>`）要求工作流在这些分支有推送时运行（删掉 `push` 下的 `branches: [main]`，或者把规则也写进去），并且在 `delete` 事件时运行；分支环境没有 PR 评论，地址在 job summary 里。哪些 PR 和分支会有环境，见 design.md 第 3 节。
 
-## 5. 第一个 PR
+## 3. 第一个 PR
 
 添加 `.tailnet-preview/` 的那个 PR 无法复制基线：默认分支还没有接入 tailnet-preview。它的环境用空的数据卷创建（先执行迁移，再灌演示数据），PR 评论里也会说明这一点。合并后，会从默认分支创建基线；之后的每个 PR 都会复制它。

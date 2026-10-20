@@ -3,7 +3,7 @@
 [简体中文](host-setup.zh-CN.md)
 
 The preview host is generic: the steps below are done once per tailnet and once per machine. Adding a
-project later needs no login to the host (see [project-setup.md](project-setup.md)).
+project later needs no login to the host (see [repository-setup.md](repository-setup.md)).
 
 ## 1. The tailnet (once)
 
