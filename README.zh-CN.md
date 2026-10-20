@@ -11,7 +11,7 @@
 > **在用 AI 编程助手？** 在你的项目里打开它，粘贴这段提示词：
 >
 > ```text
-> 为这个项目接入 tailnet-preview（https://github.com/riverscn/tailnet-preview），让每个 PR 都在我的主机上
+> 为这个项目接入 tailnet-preview（https://github.com/riverscn/tailnet-preview），让每个 PR 都在我的电脑上
 > 有自己的试用环境。按它的 docs/agent-guide.zh-CN.md 来做。需要我亲自做的步骤一次性告诉我，永远不要在聊天里
 > 向我索要密钥。
 > ```
@@ -34,7 +34,7 @@ pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）
 
 ## 需要准备什么
 
-- 一台**装了 Docker、一直开着的 Linux 主机**，留出几 GB 空闲内存（每个环境都运行一套完整的服务）。家里不关机的电脑、小主机、能跑 Docker 的 NAS，或者云上闲置的 VPS 都可以。
+- 一台**装了 Docker、一直开着的 Linux 电脑**，留出几 GB 空闲内存（每个环境都运行一套完整的服务）。家里不关机的电脑、小主机、能跑 Docker 的 NAS，或者云上闲置的 VPS 都可以。
 - 一个 **Tailscale 账号**，免费套餐就够用。
 - 一个你能管理的 **GitHub 仓库**，最好是私有的；公开仓库要按[安全说明](docs/security.zh-CN.md)采取措施。能往仓库推送的人，都能在这台机器上运行代码。
 - 一个**能在容器里运行**的应用，最好已经有 compose 文件，并且从环境变量读取自己的地址和数据库连接。
