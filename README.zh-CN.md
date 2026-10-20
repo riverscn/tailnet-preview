@@ -128,7 +128,7 @@ $ tailnet-preview reset pr-42       # 重新复制基线
 
 ## 状态
 
-1.0 之前（0.x）。它在脱胎的那个多租户 SaaS 项目里日常使用，跑在一台家用主机上。次版本仍可能改变配置或行为，所以请固定完整版本号（`@v0.3.0`），升级前先看 [CHANGELOG](CHANGELOG.md)。只支持 Linux 主机。来自 fork 的 PR 一律不部署；公开仓库还要为 runner 做额外设置（[安全模型](docs/security.zh-CN.md)）。
+1.0 之前（0.x）。它在脱胎的那个多租户 SaaS 项目里日常使用，跑在一台家用主机上。次版本仍可能改变配置或行为，所以请固定完整版本号（`@v0.4.0`），升级前先看 [CHANGELOG](CHANGELOG.md)。只支持 Linux 主机。来自 fork 的 PR 一律不部署；公开仓库还要为 runner 做额外设置（[安全模型](docs/security.zh-CN.md)）。
 
 ## 社区
 

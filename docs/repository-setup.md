@@ -67,7 +67,7 @@ jobs:
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v7
-      - uses: riverscn/tailnet-preview@v0.3.0
+      - uses: riverscn/tailnet-preview@v0.4.0
         with:
           command: deploy
           drafts: true # false: only pull requests that are ready for review
@@ -85,7 +85,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
-      - uses: riverscn/tailnet-preview@v0.3.0
+      - uses: riverscn/tailnet-preview@v0.4.0
         with:
           command: destroy
 
@@ -94,7 +94,7 @@ jobs:
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v7
-      - uses: riverscn/tailnet-preview@v0.3.0
+      - uses: riverscn/tailnet-preview@v0.4.0
         with:
           command: nightly
           branches: '' # the same as in deploy: branch environments that no longer match are removed
@@ -106,7 +106,7 @@ jobs:
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v7
-      - uses: riverscn/tailnet-preview@v0.3.0
+      - uses: riverscn/tailnet-preview@v0.4.0
         with:
           command: run
           args: ${{ inputs.args }}

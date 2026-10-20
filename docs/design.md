@@ -267,7 +267,7 @@ connections and a parallel pull aborts every image when one connection drops.
 
 ## 8. The action
 
-`uses: riverscn/tailnet-preview@v0.3.0` with `command`:
+`uses: riverscn/tailnet-preview@v0.4.0` with `command`:
 
 | `command` | Typical trigger                                                          | Does                                                                                                                                 |
 | --------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -289,7 +289,7 @@ rebuild a PR environment, run `destroy pr-<n>` and re-run the PR's deploy job.
 The diagnostics, the PR comment and the job result run after a failed deploy, but not after a cancelled
 one: a newer push that cancels the job updates the comment itself.
 
-The action locates its own scripts through `github.action_path`, so a workflow pinned to `@v0.3.0` runs
+The action locates its own scripts through `github.action_path`, so a workflow pinned to `@v0.4.0` runs
 exactly that version of the engine.
 
 ## 9. Versioning
@@ -299,7 +299,7 @@ inputs. Releases are tagged `vX.Y.Z` by the Release workflow (`.github/workflows
 notes of that version in `CHANGELOG.md`.
 
 - **0.x** (now): the interface is still settling as the first projects adopt it. A minor version may break
-  it, so projects pin the full version (`@v0.3.0`). There is no moving `v0` tag, and releases are marked as
+  it, so projects pin the full version (`@v0.4.0`). There is no moving `v0` tag, and releases are marked as
   pre-releases.
 - **From 1.0.0**: breaking changes require a new major version, and the moving tag `vX` points at the latest
   release of major version X, so projects can use `@v1`.

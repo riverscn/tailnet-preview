@@ -139,7 +139,7 @@ Every document has a Simplified Chinese version next to it (`<name>.zh-CN.md`), 
 ## Status
 
 Pre-1.0 (0.x). It is in daily use by the multi-tenant SaaS project it was extracted from, on a home server.
-Minor versions may still change configuration or behaviour, so pin the full version (`@v0.3.0`) and read
+Minor versions may still change configuration or behaviour, so pin the full version (`@v0.4.0`) and read
 the [changelog](CHANGELOG.md) before upgrading. It supports Linux hosts only. Pull requests from forks are
 never deployed, and a public repository needs extra settings for its runner ([security](docs/security.md)).
 

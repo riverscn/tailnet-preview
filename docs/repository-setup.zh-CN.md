@@ -54,7 +54,7 @@ jobs:
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v7
-      - uses: riverscn/tailnet-preview@v0.3.0
+      - uses: riverscn/tailnet-preview@v0.4.0
         with:
           command: deploy
           drafts: true # false：只部署已转为 Ready for review 的 PR
@@ -72,7 +72,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.repository.default_branch }}
-      - uses: riverscn/tailnet-preview@v0.3.0
+      - uses: riverscn/tailnet-preview@v0.4.0
         with:
           command: destroy
 
@@ -81,7 +81,7 @@ jobs:
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v7
-      - uses: riverscn/tailnet-preview@v0.3.0
+      - uses: riverscn/tailnet-preview@v0.4.0
         with:
           command: nightly
           branches: '' # 和 deploy 一样：不再匹配的分支环境会被删除
@@ -93,7 +93,7 @@ jobs:
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v7
-      - uses: riverscn/tailnet-preview@v0.3.0
+      - uses: riverscn/tailnet-preview@v0.4.0
         with:
           command: run
           args: ${{ inputs.args }}

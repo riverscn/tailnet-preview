@@ -4,6 +4,8 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+## 0.4.0 - 2026-10-20
+
 ### Added
 
 - Action inputs to choose what gets an environment. `drafts: false` skips draft pull requests until they are
