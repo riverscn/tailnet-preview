@@ -21,7 +21,8 @@ Rendering downloads a headless Chrome the first time. To use one already install
 ## On the website
 
 The website's home page plays smaller copies of both versions from `website/public/video/`. After rendering,
-update them with `npm run publish` (it needs ffmpeg), and commit the files it writes there.
+update them with `npm run publish` (it needs ffmpeg), and commit the files it writes there. The repository's
+README links to the same files, through the cover image `assets/video-poster.jpg` (the poster with a play button).
 
 ## What is where
 

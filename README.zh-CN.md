@@ -8,6 +8,8 @@
 
 [English](README.md)
 
+<p align="center"><a href="website/public/video/tailnet-preview-zh.mp4"><img src="assets/video-poster.jpg" width="720" alt="tailnet-preview 介绍视频"></a><br><sub>观看 75 秒介绍视频（<a href="website/public/video/tailnet-preview-en.mp4">英文配音版</a>）</sub></p>
+
 > **在用 AI 编程助手？** 在你的项目里打开它，粘贴这段提示词：
 >
 > ```text

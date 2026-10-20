@@ -8,6 +8,8 @@
 
 [简体中文](README.zh-CN.md)
 
+<p align="center"><a href="website/public/video/tailnet-preview-en.mp4"><img src="assets/video-poster.jpg" width="720" alt="tailnet-preview video"></a><br><sub>Watch the 75-second introduction (<a href="website/public/video/tailnet-preview-zh.mp4">Chinese voice-over</a>)</sub></p>
+
 > **Using an AI coding agent?** Open it in your project and paste this prompt:
 >
 > ```text
