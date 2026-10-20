@@ -1,5 +1,7 @@
 # Security policy
 
+[简体中文](SECURITY.zh-CN.md)
+
 ## Reporting a vulnerability
 
 Please do not open a public issue. Use GitHub's private vulnerability reporting: the **Security** tab of

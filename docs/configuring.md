@@ -1,5 +1,7 @@
 # Configuring a project
 
+[简体中文](configuring.zh-CN.md)
+
 This guide turns a repository into one that tailnet-preview can deploy. It is written as a procedure that a
 person or an AI coding agent can follow from top to bottom: every step says **where to look** in the
 project and **what to write**. The result is a `.tailnet-preview/` directory that passes

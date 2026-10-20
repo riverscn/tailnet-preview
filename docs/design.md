@@ -1,5 +1,7 @@
 # Design
 
+[简体中文](design.zh-CN.md)
+
 This document is the source of truth for how tailnet-preview works and what it expects from a project.
 Change it first when the design changes.
 

@@ -107,6 +107,8 @@ All commands: [docs/design.md](docs/design.md#6-commands).
 - [Troubleshooting](docs/troubleshooting.md): symptoms, causes, fixes
 - [Security](docs/security.md): what you trust when you run it
 
+Every document also has a Simplified Chinese version next to it (`<name>.zh-CN.md`), linked at its top.
+
 ## Status
 
 Pre-1.0 (0.x): in daily use by the multi-tenant SaaS project it was extracted from, on a home server.
