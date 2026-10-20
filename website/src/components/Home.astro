@@ -5,6 +5,9 @@ interface Props {
   lang: Lang
 }
 const { lang } = Astro.props
+const base = import.meta.env.BASE_URL.replace(/\/$/, '')
+const videoLang = lang === 'en' ? 'en' : 'zh'
+const video = (l: string) => `${base}/video/tailnet-preview-${l}.mp4`
 
 const content = {
   en: {
@@ -19,6 +22,8 @@ const content = {
       '                   ▼',
       '   https://myapp-pr-42.<your tailnet>.ts.net      private to your tailnet',
     ],
+    videoLabel: 'tailnet-preview in 75 seconds',
+    videoOther: '中文配音版',
     featuresTitle: 'Why tailnet-preview',
     features: [
       {
@@ -114,6 +119,8 @@ const content = {
       '                   ▼',
       '   https://myapp-pr-42.<你的 tailnet>.ts.net      只在 tailnet 内可访问',
     ],
+    videoLabel: '75 秒了解 tailnet-preview',
+    videoOther: 'English voice-over',
     featuresTitle: '为什么用 tailnet-preview',
     features: [
       {
@@ -190,6 +197,14 @@ $ tailnet-preview reset pr-42       # copy the baseline again`
       <a class="button" href={REPO}>{content.ctaGithub}</a>
     </div>
     <pre class="flow" aria-label="pull request → self-hosted runner → private URL">{content.flow.join('\n')}</pre>
+    <figure class="video">
+      <video controls preload="none" playsinline poster={`${base}/video/poster.jpg`} aria-label={content.videoLabel}>
+        <source src={video(videoLang)} type="video/mp4" />
+      </video>
+      <figcaption>
+        {content.videoLabel} · <a href={video(videoLang === 'en' ? 'zh' : 'en')}>{content.videoOther}</a>
+      </figcaption>
+    </figure>
   </div>
 </section>
 
@@ -323,6 +338,22 @@ $ tailnet-preview reset pr-42       # copy the baseline again`
   .flow {
     text-align: left;
     font-size: 0.82rem;
+  }
+  .video {
+    margin: 40px 0 0;
+  }
+  .video video {
+    display: block;
+    width: 100%;
+    aspect-ratio: 16 / 9;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: #0b1120;
+  }
+  .video figcaption {
+    margin-top: 10px;
+    font-size: 0.9rem;
+    color: var(--muted);
   }
   .section {
     margin-top: 72px;

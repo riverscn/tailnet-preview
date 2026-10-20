@@ -18,6 +18,11 @@ npm run render      # writes out/tailnet-preview-zh.mp4 and out/tailnet-preview-
 Rendering downloads a headless Chrome the first time. To use one already installed, add
 `--browser-executable=/path/to/chrome` to the `remotion render` command.
 
+## On the website
+
+The website's home page plays smaller copies of both versions from `website/public/video/`. After rendering,
+update them with `npm run publish` (it needs ffmpeg), and commit the files it writes there.
+
 ## What is where
 
 - `src/script.json`: the shots in order, with the voice-over of each in both languages. The subtitles show
@@ -27,6 +32,7 @@ Rendering downloads a headless Chrome the first time. To use one already install
   voice-over, and at least its `minFrames`.
 - `public/voiceover/`: the spoken lines, and `src/voiceover.json` their lengths.
 - `public/audio/`: the music and sound effects.
+- `scripts/`: the scripts that make the audio, import voice-overs and publish the videos to the website.
 
 ## Changing the voice-over
 

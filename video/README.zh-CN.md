@@ -17,6 +17,11 @@ npm run render      # 生成 out/tailnet-preview-zh.mp4 和 out/tailnet-preview-
 第一次渲染会下载一个无头 Chrome。要用已经装好的，在 `remotion render` 命令后加
 `--browser-executable=/path/to/chrome`。
 
+## 官网上的视频
+
+官网首页播放的是两个版本的压缩版，放在 `website/public/video/`。渲染之后用 `npm run publish`（需要 ffmpeg）
+更新它们，再提交那里生成的文件。
+
 ## 文件在哪
 
 - `src/script.json`：按顺序列出各个镜头，以及每个镜头的中英文旁白。字幕显示的就是这些文字。
@@ -24,6 +29,7 @@ npm run render      # 生成 out/tailnet-preview-zh.mp4 和 out/tailnet-preview-
 - `src/Promo.tsx`：把镜头、旁白、配乐和字幕拼在一起。每个镜头的长度跟随它的旁白，且不短于 `minFrames`。
 - `public/voiceover/`：旁白音频，`src/voiceover.json` 记录每句的长度。
 - `public/audio/`：配乐和音效。
+- `scripts/`：生成音频、导入配音、把视频发布到官网的脚本。
 
 ## 修改旁白
 

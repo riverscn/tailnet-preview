@@ -17,5 +17,7 @@ npm run build    # writes dist/
 - English pages are in `src/pages/`, Simplified Chinese ones in `src/pages/zh-cn/`. Change both together.
 - The home page text is in `src/components/Home.astro`, shared strings in `src/i18n.ts`.
 - The getting-started pages are Markdown: `src/pages/getting-started.md` and `src/pages/zh-cn/getting-started.md`.
+- The promo video on the home page is in `public/video/`. It is made in [video/](../video/), which says how to
+  update it.
 
 Publishing needs GitHub Pages turned on once: the repository's Settings → Pages → Source: **GitHub Actions**.

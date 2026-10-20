@@ -6,7 +6,8 @@
     "studio": "remotion studio",
     "render": "remotion render PromoZh out/tailnet-preview-zh.mp4 && remotion render PromoEn out/tailnet-preview-en.mp4",
     "render:zh": "remotion render PromoZh out/tailnet-preview-zh.mp4",
-    "render:en": "remotion render PromoEn out/tailnet-preview-en.mp4"
+    "render:en": "remotion render PromoEn out/tailnet-preview-en.mp4",
+    "publish": "scripts/publish-to-website.sh"
   },
   "dependencies": {
     "@fontsource/inter": "5.2.8",
