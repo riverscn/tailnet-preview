@@ -6,13 +6,14 @@
 
 ## 1. 为仓库启用
 
-- Settings → Secrets and variables → Actions → **Variables**：设置 `PREVIEW_ENABLED` = `true`。设置之前，工作流的任务会直接跳过，而不是一直等待 runner。
-- 必须有一个标签为 `preview` 的 self-hosted runner 服务这个仓库（[host-setup.zh-CN.md](host-setup.zh-CN.md#3-runner每个仓库一次或每个组织一次)）。
-- 如果 `riverscn/tailnet-preview` 是你的私有仓库，要允许你的其他仓库访问它（在它的 Settings → Actions → General → Access 里设置）。
+- **开关：** 在 GitHub 上打开仓库，Settings → Secrets and variables → Actions → **Variables** 标签页 → New repository variable，名称 `PREVIEW_ENABLED`，值 `true`。设置之前，工作流的任务会直接跳过，而不是一直等待 runner，所以主机准备好之前就可以合并工作流。
+- **runner：** Settings → Actions → Runners 里列出了一个标签为 `preview`、状态为 Idle 的 runner（[host-setup.zh-CN.md 第 3 节](host-setup.zh-CN.md#3-runner每个仓库一次或每个组织一次)）。
+- **Tailscale 密钥，** 只在你没有把 `TS_OAUTH_SECRET` 保存在主机上时需要（[host-setup.zh-CN.md 第 2.4 步](host-setup.zh-CN.md#2-主机一次)）：Settings → Secrets and variables → Actions → **Secrets** 标签页 → New repository secret，名称 `TS_OAUTH_SECRET`，值为客户端密钥。
+- 只在你使用 tailnet-preview 的私有副本时需要：允许你的其他仓库访问它（在它的 Settings → Actions → General → Access 里设置）。
 
 ## 2. 添加工作流
 
-`.github/workflows/preview.yml`：
+在你的仓库里创建文件 `.github/workflows/preview.yml`，内容如下，和 `.tailnet-preview/` 一起提交。按原样，它会部署每个 pull request；要改变这一点，用 `deploy` 和 `nightly` 任务的输入（见文件下方的说明）：
 
 ```yaml
 name: Preview
@@ -106,4 +107,6 @@ action 的输入：`command`（`deploy`、`destroy`、`nightly`、`run`）、`co
 
 ## 3. 第一个 PR
 
-添加 `.tailnet-preview/` 的那个 PR 无法复制基线：默认分支还没有接入 tailnet-preview。它的环境用空的数据卷创建（先执行迁移，再灌演示数据），PR 评论里也会说明这一点。合并后，会从默认分支创建基线；之后的每个 PR 都会复制它。
+开一个包含 `.tailnet-preview/` 和工作流的 pull request。它的 **deploy** 任务在主机上运行（PR 的 Checks 标签页里能看到）；完成后，PR 上会有一条评论，给出地址和演示账号。从你 tailnet 里一台使用 Tailscale DNS 的设备打开这个地址。如果任务失败，评论会写明原因和修正方法（[troubleshooting.zh-CN.md](troubleshooting.zh-CN.md)）。
+
+这第一个 PR 无法复制基线：默认分支还没有接入 tailnet-preview。它的环境用空的数据卷创建（先执行迁移，再灌演示数据），PR 评论里也会说明这一点。合并后，会从默认分支创建基线；之后的每个 PR 都会复制它。

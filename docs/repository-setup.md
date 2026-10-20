@@ -10,15 +10,22 @@ The [example](../example/) is a complete minimal project; every setting is descr
 
 ## 1. Enable it for the repository
 
-- Settings → Secrets and variables → Actions → **Variables**: `PREVIEW_ENABLED` = `true`. Until then, the
-  workflow's jobs are skipped instead of waiting for a runner.
-- A self-hosted runner labelled `preview` must serve the repository ([host-setup.md](host-setup.md#3-the-runner-per-repository-or-once-per-organization)).
-- If `riverscn/tailnet-preview` is private to you, allow access to it from your other repositories
-  (in its Settings → Actions → General → Access).
+- **The switch:** in the repository on GitHub, Settings → Secrets and variables → Actions → **Variables**
+  tab → New repository variable, name `PREVIEW_ENABLED`, value `true`. Until then, the workflow's jobs are
+  skipped instead of waiting for a runner, so you can merge the workflow before the host is ready.
+- **The runner:** Settings → Actions → Runners lists a runner labelled `preview` as Idle
+  ([host-setup.md section 3](host-setup.md#3-the-runner-per-repository-or-once-per-organization)).
+- **The Tailscale secret,** only if you did not store `TS_OAUTH_SECRET` on the host
+  ([host-setup.md step 2.4](host-setup.md#2-the-machine-once)): Settings → Secrets and variables → Actions →
+  **Secrets** tab → New repository secret, name `TS_OAUTH_SECRET`, value the client secret.
+- Only if you use a private copy of tailnet-preview: allow access to it from your other repositories (in its
+  Settings → Actions → General → Access).
 
 ## 2. Add the workflow
 
-`.github/workflows/preview.yml`:
+Create the file `.github/workflows/preview.yml` in your repository with the content below, and commit it
+together with `.tailnet-preview/`. As it is, it deploys every pull request; the inputs of the `deploy` and
+`nightly` jobs choose otherwise (below the file):
 
 ```yaml
 name: Preview
@@ -121,6 +128,11 @@ environment: design.md section 3.
 
 ## 3. The first pull request
 
-The PR that adds `.tailnet-preview/` cannot copy a baseline: the default branch does not use
-tailnet-preview yet. Its environment is created with empty volumes (migrate, then seed), and the PR comment
-says so. Merging it creates the baseline from the default branch; every later PR copies it.
+Open a pull request with `.tailnet-preview/` and the workflow. Its **deploy** job runs on the host (the PR's
+Checks tab shows it); when it finishes, a comment on the PR gives the address and the demo accounts. Open
+the address from a device in your tailnet that uses Tailscale DNS. If the job fails, the comment names
+the cause and the fix ([troubleshooting.md](troubleshooting.md)).
+
+This first PR cannot copy a baseline: the default branch does not use tailnet-preview yet. Its environment
+is created with empty volumes (migrate, then seed), and the PR comment says so. Merging it creates the
+baseline from the default branch; every later PR copies it.

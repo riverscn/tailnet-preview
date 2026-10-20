@@ -21,6 +21,10 @@ All notable changes are documented here. The project follows [Semantic Versionin
   gone. `configuring.md` says how to get the `tailnet-preview` command, and its local smoke test no longer
   picks up a real host's settings. The README is reorganised for a first-time reader: what you need, four
   steps to a first preview, then how it works and the options.
+- The setup guides say, for each step, where it is done, as which user, what it produces, which later step
+  uses it and how to check it: the OAuth client secret of host setup step 1.3 is `TS_OAUTH_SECRET` in step
+  2.4; Docker group membership; the `tailnet-preview` command on `PATH`; registering the runner and
+  checking it is Idle; the repository variable and secret; what happens on the first pull request.
 
 ## 0.3.0 - 2026-10-19
 

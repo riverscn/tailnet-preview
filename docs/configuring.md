@@ -28,15 +28,18 @@ and repository settings come afterwards: [repository-setup.md](repository-setup.
 
 ## 1. Start from the generated skeleton
 
-The `tailnet-preview` command is the engine in this repository's `bin/`. Get it on a Linux machine with
-Docker (the preview host will do); it needs nothing else. In CI the action brings its own copy.
+The `tailnet-preview` command is the engine in this repository's `bin/`. It runs on Linux with Docker (not
+on macOS: it needs the GNU tools). On the preview host it is already installed if you followed
+[host-setup.md step 2.5](host-setup.md#2-the-machine-once); on another Linux machine, install it the same
+way:
 
 ```bash
 git clone --depth 1 https://github.com/riverscn/tailnet-preview ~/tailnet-preview
-export PATH="$HOME/tailnet-preview/bin:$PATH"
+echo 'export PATH="$HOME/tailnet-preview/bin:$PATH"' >> ~/.bashrc && . ~/.bashrc
 ```
 
-Then, from the root of your project's repository:
+In CI the action brings its own copy; nothing is installed there. Check out your project's repository on
+the same machine, then run from its root directory:
 
 ```bash
 tailnet-preview init          # writes .tailnet-preview/config.env and compose.yaml
@@ -52,7 +55,8 @@ tailnet-preview init          # writes .tailnet-preview/config.env and compose.y
 `*.Dockerfile`); CI or deployment scripts that run `docker build`.
 
 **Write:** one `name=path` per image, path relative to the repository root, which is also the build
-context. Use the image in compose as `${TP_IMAGE_<NAME>}`.
+context. Use the image in compose as `${TP_IMAGE_<NAME>}`, the name in upper case with `-` as `_`: `api`
+becomes `${TP_IMAGE_API}`, `admin-web` becomes `${TP_IMAGE_ADMIN_WEB}`.
 
 ```sh
 IMAGES=api=apps/api/Dockerfile web=apps/web/Dockerfile
@@ -66,7 +70,8 @@ Images the project only pulls (`postgres`, `redis`) do not belong here.
 file that runs only dependencies (database, cache) for local development is still useful: reuse it and add
 the application's services in the override.
 
-**If such a file exists**, reuse it unchanged and override only what differs:
+**If such a file exists**, reuse it unchanged and override only what differs. An override is a second
+compose file that Compose merges over the first, key by key, so it contains only the changes:
 
 ```sh
 COMPOSE_FILES=../compose.yaml compose.yaml
@@ -101,8 +106,8 @@ other (for example nginx proxying `/api/`), exactly as in production.
 
 ## 5. The application's own address: `TP_URL`
 
-Each environment has its own address, `https://<project>-<env>.<tailnet>.ts.net`, available as
-`${TP_URL}`. Applications need it for login redirects, cookies, CORS and links in e-mails.
+Each environment has its own address, available as `${TP_URL}`: `https://<project>-<env>.<tailnet>.ts.net`,
+or `https://<project>-<env>.<domain>` on a host with the shared ingress. Applications need it for login redirects, cookies, CORS and links in e-mails.
 
 **Look for:** every setting that contains the public URL or the host name: `APP_URL`, `BASE_URL`,
 `PUBLIC_URL`, `NEXTAUTH_URL`, `BETTER_AUTH_URL`, `ALLOWED_ORIGINS`, `CORS_ORIGIN`, `TRUSTED_ORIGINS`,
@@ -143,7 +148,9 @@ DATA_VOLUMES=none              # every PR starts with empty data and runs the se
 ```
 
 Passwords that the database and the application share go into `SECRETS` and are used by name in compose.
-They are generated once per project and identical in every environment, which a copied database requires:
+You only write their names: the engine generates random values on the first deploy, stores them on the
+host (`~/previews/<project>/secrets.env`) and uses the same values in every environment, which a copied
+database requires:
 
 ```sh
 SECRETS=DB_PASSWORD SESSION_SECRET
@@ -165,9 +172,14 @@ services:
 head`, …) and a seed or fixtures command. If the application migrates by itself on start, no `migrate` task
 is needed.
 
-**Write** them as services in the `tasks` profile, run with `docker compose run --rm`:
+**Write** them as services in the `tasks` profile, run with `docker compose run --rm`. They usually need
+the same environment variables as the application; a YAML anchor (`&env`, used as `*env`) avoids
+repeating them:
 
 ```yaml
+x-env: &env # the application's variables, shared by its services and tasks
+  DATABASE_URL: postgres://app:${DB_PASSWORD}@db:5432/app
+
 services:
   migrate:
     image: ${TP_IMAGE_API}
@@ -188,7 +200,8 @@ services:
 ```
 
 `migrate` runs before every deploy; `seed` runs only when an environment starts with empty data. Demo data
-must be fictional; mention its accounts in `comment.md` so reviewers can log in.
+must be fictional. Put its accounts in `.tailnet-preview/comment.md`, a Markdown file whose text is added
+to every PR comment, so reviewers know how to log in.
 
 ## 9. Check it
 

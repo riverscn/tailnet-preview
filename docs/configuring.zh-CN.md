@@ -16,14 +16,14 @@
 
 ## 1. 从生成的初稿开始
 
-`tailnet-preview` 命令就是本仓库 `bin/` 下的引擎。在一台装了 Docker 的 Linux 机器上获取它（试用主机就可以），不需要别的依赖。CI 里由 action 自带一份。
+`tailnet-preview` 命令就是本仓库 `bin/` 下的引擎。它在装了 Docker 的 Linux 上运行（不能在 macOS 上运行：它需要 GNU 工具）。如果你按 [host-setup.zh-CN.md 第 2.5 步](host-setup.zh-CN.md#2-主机一次)做过，试用主机上已经装好了它；在别的 Linux 机器上，用同样的方式安装：
 
 ```bash
 git clone --depth 1 https://github.com/riverscn/tailnet-preview ~/tailnet-preview
-export PATH="$HOME/tailnet-preview/bin:$PATH"
+echo 'export PATH="$HOME/tailnet-preview/bin:$PATH"' >> ~/.bashrc && . ~/.bashrc
 ```
 
-然后在你项目仓库的根目录执行：
+CI 里由 action 自带一份，不需要在那里安装任何东西。在同一台机器上检出你项目的仓库，然后在它的根目录执行：
 
 ```bash
 tailnet-preview init          # 在仓库根目录执行；生成 .tailnet-preview/config.env 和 compose.yaml
@@ -35,7 +35,7 @@ tailnet-preview init          # 在仓库根目录执行；生成 .tailnet-previ
 
 **查找：**项目要部署的服务的 Dockerfile（`Dockerfile`、`apps/*/Dockerfile`、`*.Dockerfile`）；CI 或部署脚本里执行 `docker build` 的地方。
 
-**写入：**每个镜像一条 `name=path`，路径相对于仓库根目录，仓库根目录也是构建上下文。在 compose 里用 `${TP_IMAGE_<NAME>}` 引用镜像。
+**写入：**每个镜像一条 `name=path`，路径相对于仓库根目录，仓库根目录也是构建上下文。在 compose 里用 `${TP_IMAGE_<NAME>}` 引用镜像，其中名字转成大写、`-` 换成 `_`：`api` 对应 `${TP_IMAGE_API}`，`admin-web` 对应 `${TP_IMAGE_ADMIN_WEB}`。
 
 ```sh
 IMAGES=api=apps/api/Dockerfile web=apps/web/Dockerfile
@@ -47,7 +47,7 @@ IMAGES=api=apps/api/Dockerfile web=apps/web/Dockerfile
 
 **查找：**能运行整个应用的 compose 文件（生产用的，或完整的本地开发栈）。只为本地开发运行依赖（数据库、缓存）的 compose 文件也有用：复用它，在覆盖文件里补上应用自己的服务。
 
-**如果有这样的文件**，原样复用，只覆盖不同的部分：
+**如果有这样的文件**，原样复用，只覆盖不同的部分。覆盖文件是第二个 compose 文件，Compose 会把它逐个键合并到第一个文件之上，所以它只包含改动的部分：
 
 ```sh
 COMPOSE_FILES=../compose.yaml compose.yaml
@@ -73,7 +73,7 @@ PORTS=8025=mailpit:8025      # 可选：其他值得打开的界面，每个占�
 
 ## 5. 应用自己的地址：`TP_URL`
 
-每个环境有自己的地址 `https://<project>-<env>.<tailnet>.ts.net`，可以用 `${TP_URL}` 引用。应用的登录跳转、cookie、CORS 和邮件里的链接都要用到它。
+每个环境有自己的地址，可以用 `${TP_URL}` 引用：`https://<project>-<env>.<tailnet>.ts.net`，在使用共享入口的主机上则是 `https://<project>-<env>.<domain>`。应用的登录跳转、cookie、CORS 和邮件里的链接都要用到它。
 
 **查找：**所有包含公开地址或主机名的设置：`APP_URL`、`BASE_URL`、`PUBLIC_URL`、`NEXTAUTH_URL`、`BETTER_AUTH_URL`、`ALLOWED_ORIGINS`、`CORS_ORIGIN`、`TRUSTED_ORIGINS`，以及构建时写进前端的 `VITE_*`/`NEXT_PUBLIC_*` 变量。
 
@@ -102,7 +102,7 @@ DATA_VOLUMES=db-data uploads   # 只复制这些；缓存和构建产物从空�
 DATA_VOLUMES=none              # 每个 PR 都从空数据开始，并执行 seed 任务
 ```
 
-数据库和应用共用的密码放进 `SECRETS`，在 compose 里按名字引用。它们每个项目只生成一次，所有环境都相同，因为复制来的数据库要求这样：
+数据库和应用共用的密码放进 `SECRETS`，在 compose 里按名字引用。你只需要写出它们的名字：引擎在第一次部署时生成随机值，保存在主机上（`~/previews/<project>/secrets.env`），所有环境都用同样的值，因为复制来的数据库要求这样：
 
 ```sh
 SECRETS=DB_PASSWORD SESSION_SECRET
@@ -122,9 +122,12 @@ services:
 
 **查找：**迁移命令（`migrate`、`db:migrate`、`prisma migrate deploy`、`alembic upgrade head`……），以及灌演示数据或 fixtures 的命令。如果应用启动时会自己执行迁移，就不需要 `migrate` 任务。
 
-**写入：**把它们写成 `tasks` profile 里的服务，用 `docker compose run --rm` 执行：
+**写入：**把它们写成 `tasks` profile 里的服务，用 `docker compose run --rm` 执行。它们通常需要和应用相同的环境变量；用 YAML 锚点（`&env` 定义，`*env` 引用）可以避免重复书写：
 
 ```yaml
+x-env: &env # 应用的环境变量，它的服务和任务共用
+  DATABASE_URL: postgres://app:${DB_PASSWORD}@db:5432/app
+
 services:
   migrate:
     image: ${TP_IMAGE_API}
@@ -144,7 +147,7 @@ services:
     command: ['node', 'dist/seed.js']
 ```
 
-`migrate` 在每次部署前执行；`seed` 只在环境从空数据开始时执行。演示数据必须是虚构的；在 `comment.md` 里写明演示账号，方便评审的人登录。
+`migrate` 在每次部署前执行；`seed` 只在环境从空数据开始时执行。演示数据必须是虚构的。把演示账号写进 `.tailnet-preview/comment.md`，这是一个 Markdown 文件，它的内容会加到每条 PR 评论里，这样评审的人就知道怎么登录。
 
 ## 9. 检查
 
