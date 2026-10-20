@@ -4,6 +4,16 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+### Added
+
+- Action inputs to choose what gets an environment. `drafts: false` skips draft pull requests until they are
+  ready for review (the default deploys them, as before). `branches` gives branches without a pull request
+  an environment of their own, `br-<branch>`: none by default, `*` for every branch, or globs such as
+  `release/* feature/*`. A branch environment is removed when its branch is deleted (the `delete` event),
+  gets a pull request, or no longer matches (by `nightly`). A skipped deploy succeeds and says why in the
+  job summary. Engine: `branch-env`, and `prune` keeps listed `br-` environments.
+- `MAX_ENVS` counts branch environments too.
+
 ## 0.3.0 - 2026-10-19
 
 ### Added

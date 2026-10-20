@@ -56,9 +56,10 @@ name: Preview
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened, ready_for_review, closed]
   push:
-    branches: [main]
+    branches: [main] # branch environments: remove this line, or add their patterns
+  delete: # a deleted branch takes its environment with it
   schedule:
     - cron: '30 18 * * *'
   workflow_dispatch:
@@ -80,23 +81,26 @@ jobs:
       vars.PREVIEW_ENABLED == 'true' && (github.event_name == 'push' ||
       (github.event_name == 'pull_request' && github.event.action != 'closed' &&
        github.event.pull_request.head.repo.full_name == github.repository))
-    # A newer push to the same pull request supersedes this deploy; pushes to the default branch always finish.
+    # A newer push to the same pull request or branch supersedes this deploy; pushes to the default branch always finish.
     concurrency:
       group: preview-deploy-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+      cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v7
       - uses: riverscn/tailnet-preview@v0.3.0
         with:
           command: deploy
+          drafts: true # false: only pull requests that are ready for review
+          branches: '' # e.g. '*' or 'release/* feature/*' (and the same in nightly)
         env:
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }} # optional, see host-setup.md
 
   destroy:
     if: >-
-      vars.PREVIEW_ENABLED == 'true' && github.event_name == 'pull_request' && github.event.action == 'closed' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      vars.PREVIEW_ENABLED == 'true' && (github.event_name == 'delete' ||
+      (github.event_name == 'pull_request' && github.event.action == 'closed' &&
+       github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v7
@@ -114,6 +118,7 @@ jobs:
       - uses: riverscn/tailnet-preview@v0.3.0
         with:
           command: nightly
+          branches: '' # the same as in deploy: branch environments that no longer match are removed
         env:
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
 
@@ -134,8 +139,16 @@ To deploy only after your tests pass, put the `deploy` job in your CI workflow w
 `needs: [your-test-jobs]` instead.
 
 Action inputs: `command` (`deploy`, `destroy`, `nightly`, `run`), `config` (default `.tailnet-preview`),
-`args` (for `run`), `language` (`en` or `zh-CN`, for the PR comment), `github-token`. Outputs:
-`environment`, `url`, `mode` (`forked`, `upgraded` or `fresh`).
+`args` (for `run`), `language` (`en` or `zh-CN`, for the PR comment), `drafts` (`true` by default; `false`
+skips draft pull requests until they are ready for review), `branches` (environments for branches without
+a pull request: empty by default, `*` for every branch, or globs such as `release/* feature/*`),
+`github-token`. Outputs: `environment` (empty when the deploy was skipped), `url`, `mode` (`forked`,
+`upgraded` or `fresh`).
+
+**Branch environments** (`br-<branch>`) need the workflow to run on pushes to those branches (remove
+`branches: [main]` under `push`, or list the patterns there as well) and on `delete`; a branch environment
+has no PR comment, its address is in the job summary. Which pull requests and branches get an
+environment: design.md section 3.
 
 ## 5. The first pull request
 

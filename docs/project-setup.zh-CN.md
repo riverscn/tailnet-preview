@@ -46,9 +46,10 @@ name: Preview
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
+    types: [opened, synchronize, reopened, ready_for_review, closed]
   push:
-    branches: [main]
+    branches: [main] # 分支环境：删掉这一行，或者把分支规则也加进来
+  delete: # 分支删除时，它的环境也随之删除
   schedule:
     - cron: '30 18 * * *'
   workflow_dispatch:
@@ -70,23 +71,26 @@ jobs:
       vars.PREVIEW_ENABLED == 'true' && (github.event_name == 'push' ||
       (github.event_name == 'pull_request' && github.event.action != 'closed' &&
        github.event.pull_request.head.repo.full_name == github.repository))
-    # 同一个 PR 有更新的推送时，取消这次部署；推送到默认分支的部署总会跑完。
+    # 同一个 PR 或分支有更新的推送时，取消这次部署；推送到默认分支的部署总会跑完。
     concurrency:
       group: preview-deploy-${{ github.event.pull_request.number || github.ref }}
-      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+      cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v7
       - uses: riverscn/tailnet-preview@v0.3.0
         with:
           command: deploy
+          drafts: true # false：只部署已转为 Ready for review 的 PR
+          branches: '' # 例如 '*' 或 'release/* feature/*'（nightly 里写同样的值）
         env:
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }} # 可选，见 host-setup.md
 
   destroy:
     if: >-
-      vars.PREVIEW_ENABLED == 'true' && github.event_name == 'pull_request' && github.event.action == 'closed' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      vars.PREVIEW_ENABLED == 'true' && (github.event_name == 'delete' ||
+      (github.event_name == 'pull_request' && github.event.action == 'closed' &&
+       github.event.pull_request.head.repo.full_name == github.repository))
     runs-on: [self-hosted, preview]
     steps:
       - uses: actions/checkout@v7
@@ -104,6 +108,7 @@ jobs:
       - uses: riverscn/tailnet-preview@v0.3.0
         with:
           command: nightly
+          branches: '' # 和 deploy 一样：不再匹配的分支环境会被删除
         env:
           TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
 
@@ -122,7 +127,9 @@ jobs:
 
 如果想等测试通过后再部署，改为把 `deploy` 任务放进你的 CI 工作流，并加上 `needs: [your-test-jobs]`。
 
-action 的输入：`command`（`deploy`、`destroy`、`nightly`、`run`）、`config`（默认 `.tailnet-preview`）、`args`（用于 `run`）、`language`（`en` 或 `zh-CN`，用于 PR 评论）、`github-token`。输出：`environment`、`url`、`mode`（`forked`、`upgraded` 或 `fresh`）。
+action 的输入：`command`（`deploy`、`destroy`、`nightly`、`run`）、`config`（默认 `.tailnet-preview`）、`args`（用于 `run`）、`language`（`en` 或 `zh-CN`，用于 PR 评论）、`drafts`（默认 `true`；`false` 时草稿 PR 要等转为 Ready for review 才部署）、`branches`（给没有 PR 的分支建环境：默认为空，`*` 表示所有分支，也可以写 `release/* feature/*` 这样的规则）、`github-token`。输出：`environment`（部署被跳过时为空）、`url`、`mode`（`forked`、`upgraded` 或 `fresh`）。
+
+**分支环境**（`br-<分支>`）要求工作流在这些分支有推送时运行（删掉 `push` 下的 `branches: [main]`，或者把规则也写进去），并且在 `delete` 事件时运行；分支环境没有 PR 评论，地址在 job summary 里。哪些 PR 和分支会有环境，见 design.md 第 3 节。
 
 ## 5. 第一个 PR
 

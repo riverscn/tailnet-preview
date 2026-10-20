@@ -56,19 +56,49 @@ build() {
 }
 notes() { TP_SOURCE=$WORK/project "$TP" compose "$1" exec -T app psql -Atq -F ' ' -c 'SELECT env, body FROM notes ORDER BY id'; }
 
-# The environment step: which environment, and never a deploy of a fork's pull request.
+# The environment step: which environment for which event, what is skipped, and never a deploy of a fork's
+# pull request. Variables of the event come from the arguments (VAR=value ...).
 yq -r '.runs.steps[] | select(.id == "env") | .run' "$REPO/action.yml" >"$WORK/env-step.sh"
 env_step() {
   : >"$WORK/env-output"
-  COMMAND=$1 EVENT=pull_request PR=5 HEAD_REPO=$2 GITHUB_REPOSITORY=me/app DEFAULT_BRANCH=main GITHUB_REF=refs/pull/5/merge \
-    GITHUB_OUTPUT=$WORK/env-output bash --noprofile --norc -eo pipefail "$WORK/env-step.sh" >"$WORK/log" 2>&1
+  : >"$WORK/summary"
+  env TP="$TP" TP_PROJECT=app TP_HOST_CONFIG="$WORK/no-host-config" COMMAND=deploy EVENT=pull_request PR=5 \
+    HEAD_REPO=me/app DRAFT=false DRAFTS=true BRANCHES='' BRANCH_PR='' DELETED_REF='' DELETED_TYPE='' \
+    GITHUB_REPOSITORY=me/app DEFAULT_BRANCH=main GITHUB_REF=refs/pull/5/merge "$@" \
+    GITHUB_OUTPUT="$WORK/env-output" GITHUB_STEP_SUMMARY="$WORK/summary" \
+    bash --noprofile --norc -eo pipefail "$WORK/env-step.sh" >"$WORK/log" 2>&1
 }
-env_step deploy me/app || fatal "deploy of a PR from the repository: $(cat "$WORK/log")"
-[[ $(cat "$WORK/env-output") == name=pr-5 ]] || fatal "environment of a PR from the repository: $(cat "$WORK/env-output")"
-if env_step deploy someone/app; then fatal "deploy of a fork's PR was not refused"; fi
+# expect_env NAME|skip DESCRIPTION VAR=value...
+expect_env() {
+  local want=$1 what=$2
+  shift 2
+  env_step "$@" || fatal "$what: the step failed: $(cat "$WORK/log")"
+  if [[ $want == skip ]]; then
+    grep -qx 'skip=true' "$WORK/env-output" || fatal "$what: not skipped: $(cat "$WORK/env-output")"
+    grep -q 'No preview environment' "$WORK/summary" || fatal "$what: the summary does not say why"
+  else
+    [[ $(cat "$WORK/env-output") == "name=$want" ]] || fatal "$what: expected $want, got $(cat "$WORK/env-output")"
+  fi
+}
+expect_env pr-5 "a PR from the repository"
+if env_step HEAD_REPO=someone/app; then fatal "deploy of a fork's PR was not refused"; fi
 grep -q 'does not deploy pull requests from forks' "$WORK/log" || fatal "refusal names the reason: $(cat "$WORK/log")"
-env_step destroy someone/app || fatal "destroy of a fork's PR (nothing of its code runs)"
+expect_env pr-5 "destroy of a fork's PR (nothing of its code runs)" COMMAND=destroy HEAD_REPO=someone/app
 ok "the action refuses to deploy a fork's pull request"
+expect_env pr-5 "a draft PR, drafts: true" DRAFT=true
+expect_env skip "a draft PR, drafts: false" DRAFT=true DRAFTS=false
+expect_env pr-5 "destroy of a draft PR, drafts: false" COMMAND=destroy DRAFT=true DRAFTS=false
+ok "draft pull requests are skipped only with drafts: false"
+push=(EVENT=push PR= GITHUB_REF=refs/heads/feature/Login)
+expect_env main "a push to the default branch" EVENT=push PR= GITHUB_REF=refs/heads/main
+expect_env skip "a branch push, branches off" "${push[@]}"
+expect_env skip "a branch push that does not match" "${push[@]}" BRANCHES='release/*'
+expect_env br-feature-login "a branch push that matches" "${push[@]}" BRANCHES='release/*, feature/*'
+expect_env br-feature-login "a branch push, every branch" "${push[@]}" BRANCHES='*'
+expect_env skip "a branch push of a branch with an open PR" "${push[@]}" BRANCHES='*' BRANCH_PR=7
+expect_env br-feature-login "destroy after the branch is deleted" COMMAND=destroy EVENT=delete PR= \
+  GITHUB_REF=refs/heads/main DELETED_REF=feature/Login DELETED_TYPE=branch
+ok "branch pushes get br-<branch> environments when branches matches and there is no PR"
 
 docker build -q -t tp-fake-tailscale:test "$REPO/test/fake-tailscale" >/dev/null
 

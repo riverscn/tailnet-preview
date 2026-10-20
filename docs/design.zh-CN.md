@@ -48,16 +48,18 @@ GitHub ──(workflow job, label: preview)──▶ self-hosted runner on the p
 
 ## 3. 环境
 
-| 环境 | 名称        | 数据来源                                                                    | 生命周期      |
-| ---- | ----------- | --------------------------------------------------------------------------- | ------------- |
-| 基线 | `main`      | 第一次部署：空数据卷 → 迁移 → 演示数据。之后每次推送默认分支时原地升级      | 直到手动停止  |
-| PR   | `pr-<编号>` | 复制基线的 `DATA_VOLUMES`，再执行 PR 的迁移。之后每次推送这个 PR 时原地升级 | PR 关闭时删除 |
+| 环境 | 名称        | 数据来源                                                                    | 生命周期                               |
+| ---- | ----------- | --------------------------------------------------------------------------- | -------------------------------------- |
+| 基线 | `main`      | 第一次部署：空数据卷 → 迁移 → 演示数据。之后每次推送默认分支时原地升级      | 直到手动停止                           |
+| PR   | `pr-<编号>` | 复制基线的 `DATA_VOLUMES`，再执行 PR 的迁移。之后每次推送这个 PR 时原地升级 | PR 关闭时删除                          |
+| 分支 | `br-<分支>` | 和 PR 环境一样，用于没有开 PR 的分支（可选，action 的 `branches` 输入）     | 分支删除、开了 PR 或不再匹配规则时删除 |
 
+- **哪些 PR 和分支有环境**由项目的工作流决定，通过 action 的两个输入（第 8 节）：`drafts`（草稿 PR 也部署，这是默认；或者等它转为 Ready for review 再部署）和 `branches`（默认不部署分支；`*` 表示所有分支；或者按规则匹配，例如 `release/* feature/*`）。开了 PR 的分支只由 PR 环境提供。分支环境的名字是分支名转成小写、其他字符都换成 `-`（`feature/Login` → `br-feature-login`）；`<project>-br-<…>` 超过 63 个字符（DNS 标签的上限）时会截短，并加上分支名的哈希。只在这类字符上不同的两个分支会共用一个环境。
 - **复制基线就是复制数据卷。** 引擎先创建 PR 环境的容器和数据卷但不启动，停止基线的服务（不停它的 Tailscale 节点），逐个文件复制 `DATA_VOLUMES` 中的每个数据卷（`cp -a`），然后不论复制是否成功都重新启动基线。复制要几秒，这期间基线不可用；因为这期间没有东西写数据卷，所以副本是一致的。任何数据库都行，放在数据卷里的上传文件或搜索索引也一样。
 - **全新环境。** 没有基线可复制时，PR 环境像基线一样创建（空数据卷 → 迁移 → 演示数据）：接入 tailnet-preview 的那个 PR（默认分支还没有 `.tailnet-preview/`），或者没有 `DATA_VOLUMES` 的项目。合并接入的 PR 会创建基线。
 - **迁移只能向前。** 如果 PR 修改了一个已在其环境中执行过的迁移，环境就和代码对不上了；重置它（会重新从基线复制）。
 - 环境只有在成功创建过一次之后（有 `initialized` 标记）才算存在。创建到一半的环境会在下次部署时从头重建：先删除它的容器和数据卷，Tailscale 节点的状态除外。
-- 每个环境都运行每个服务的独立副本，数据库也不例外。请据此预留内存。限制：每个项目最多 `MAX_ENVS` 个 PR 环境（默认 8），主机可用内存低于 `MIN_FREE_MB`（默认 1536）时不创建新的 PR 环境。触到限制不算失败；PR 评论会说明。
+- 每个环境都运行每个服务的独立副本，数据库也不例外。请据此预留内存。限制：每个项目最多 `MAX_ENVS` 个 PR 和分支环境（默认 8），主机可用内存低于 `MIN_FREE_MB`（默认 1536）时不创建新的环境。触到限制不算失败；PR 评论会说明。
 
 ## 4. 主机上的布局
 
@@ -106,7 +108,7 @@ GitHub ──(workflow job, label: preview)──▶ self-hosted runner on the p
 | `HEALTH_PATH`   | `/`            | 通过 `HTTP` 反复请求的路径，直到返回 2xx/3xx；两分钟内不返回则部署失败                                                                     |
 | `DATA_VOLUMES`  | `auto`         | 从基线复制到新 PR 环境、并每晚备份的数据卷：`auto`（所有具名数据卷）、`none`（每个 PR 都从空数据开始并灌演示数据），或空格分隔的数据卷名   |
 | `SECRETS`       | 空             | 空格分隔的变量名；每个变量为每个项目生成一次随机值，保存在主机上，在所有环境中相同                                                         |
-| `MAX_ENVS`      | `8`            | PR 环境的最大数量                                                                                                                          |
+| `MAX_ENVS`      | `8`            | PR 和分支环境的最大数量                                                                                                                    |
 | `MIN_FREE_MB`   | `1536`         | 创建 PR 环境所需的最小主机可用内存                                                                                                         |
 | `KEEP_BACKUPS`  | `7`            | 保留的基线每日备份份数                                                                                                                     |
 
@@ -143,7 +145,10 @@ tailnet-preview destroy ENV [--force]             删除容器、数据卷和 Ta
 tailnet-preview stop|start ENV                    停止或启动，保留数据
 tailnet-preview url ENV | info ENV | list         显示地址；info：地址、tag 和创建方式（mode）
 tailnet-preview backup                            归档基线的 DATA_VOLUMES，保留 KEEP_BACKUPS 份
-tailnet-preview prune [OPEN_PR_NUMBERS…]          删除已关闭 PR 的环境，删除不再使用的镜像
+tailnet-preview prune [KEEP…]                     删除未列出的 PR 和分支环境（列出的是 PR 编号和
+                                                  br-<分支> 名），删除不再使用的镜像
+tailnet-preview branch-env [--match PATTERNS] BRANCH
+                                                  输出分支的环境名；带 --match 时，没有规则匹配就以 1 退出
 tailnet-preview doctor ENV                        只读诊断
 tailnet-preview validate                          不部署，只检查配置（只需要 docker CLI）
 tailnet-preview init                              生成一份带注释的 .tailnet-preview/ 作为起点
@@ -179,14 +184,16 @@ tailscaled 自己也会在 serve 配置包含 HTTPS 而证书缺失时申请证�
 
 `uses: riverscn/tailnet-preview@v0.3.0`，配合 `command`：
 
-| `command` | 典型触发                                                           | 作用                                                                            |
-| --------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
-| `deploy`  | `pull_request`（opened、synchronize、reopened），`push` 到默认分支 | 构建镜像，必要时从 base 分支初始化基线（或全新部署），部署，打印 `doctor`，评论 |
-| `destroy` | `pull_request` closed                                              | 删除 `pr-<编号>`，更新 PR 评论                                                  |
-| `nightly` | `schedule`                                                         | 备份基线，清理已关闭 PR 的环境和不再使用的镜像                                  |
-| `run`     | `workflow_dispatch`                                                | 运行 `args` 中给出的引擎命令，例如 `reset main`                                 |
+| `command` | 典型触发                                                                  | 作用                                                                                                 |
+| --------- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `deploy`  | `pull_request`（opened、synchronize、reopened、ready_for_review），`push` | 构建镜像，必要时从 base 分支初始化基线（或全新部署），部署，打印 `doctor`，评论                      |
+| `destroy` | `pull_request` closed，`delete` 分支                                      | 删除 `pr-<编号>`（并更新 PR 评论）或 `br-<分支>`                                                     |
+| `nightly` | `schedule`                                                                | 备份基线；清理已关闭 PR 的环境，以及分支已删除、已开 PR 或不再匹配规则的分支环境；清理不再使用的镜像 |
+| `run`     | `workflow_dispatch`                                                       | 运行 `args` 中给出的引擎命令，例如 `reset main`                                                      |
 
-`run` 使用工作流检出的那个 ref 的代码，通常是默认分支，所以它拒绝 `deploy pr-<n>` 和 `reset pr-<n>`：它们会把默认分支的代码放进 PR 环境。要重建 PR 环境，运行 `destroy pr-<n>`，再重新运行该 PR 的部署 job。
+推送到默认分支会部署基线。推送到其他分支时，如果 `branches` 匹配它、且它没有开着的 PR，就部署它的分支环境，否则跳过；`drafts` 为 `false` 时跳过草稿 PR（它已有的环境保留到 PR 关闭）。跳过的部署算成功，并在 job summary 里说明原因。`nightly` job 要传同样的 `branches`，清理时按它判断。
+
+`run` 使用工作流检出的那个 ref 的代码，通常是默认分支，所以它拒绝对 `pr-<n>` 和 `br-<分支>` 执行 `deploy` 和 `reset`：它们会把默认分支的代码放进那个环境。要重建 PR 环境，运行 `destroy pr-<n>`，再重新运行该 PR 的部署 job。
 
 部署失败后，诊断、PR 评论和 job 结果这几步仍会运行，但部署被取消时不会：取消这个 job 的新推送会自己更新评论。
 

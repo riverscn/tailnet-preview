@@ -54,11 +54,19 @@ GitHub ──(workflow job, label: preview)──▶ self-hosted runner on the p
 
 ## 3. Environments
 
-| Environment | Name          | Data comes from                                                                                               | Lifetime                     |
-| ----------- | ------------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------- |
-| Baseline    | `main`        | First deploy: empty volumes → migrate → seed. Later pushes to the default branch upgrade it in place          | Until stopped by hand        |
-| PR          | `pr-<number>` | A copy of the baseline's `DATA_VOLUMES`, then the PR's migrations. Later pushes to the PR upgrade it in place | Destroyed when the PR closes |
+| Environment | Name          | Data comes from                                                                                               | Lifetime                                                             |
+| ----------- | ------------- | ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| Baseline    | `main`        | First deploy: empty volumes → migrate → seed. Later pushes to the default branch upgrade it in place          | Until stopped by hand                                                |
+| PR          | `pr-<number>` | A copy of the baseline's `DATA_VOLUMES`, then the PR's migrations. Later pushes to the PR upgrade it in place | Destroyed when the PR closes                                         |
+| Branch      | `br-<branch>` | Like a PR environment, for a branch without an open PR (optional, the action's `branches` input)              | Destroyed when the branch is deleted, gets a PR or no longer matches |
 
+- **Which PRs and branches get one** is up to the project's workflow, through two action inputs (section
+  8): `drafts` (draft PRs too, the default, or only once they are ready for review) and `branches` (none,
+  the default; every branch, `*`; or branches matching patterns such as `release/* feature/*`). A branch
+  with an open PR is served by the PR's environment only. A branch environment's name is the branch
+  name in lower case with every other character replaced by `-` (`feature/Login` → `br-feature-login`),
+  shortened with a hash of the branch name when `<project>-br-<…>` would exceed 63 characters, the limit
+  of a DNS label; two branches that differ only in such characters share an environment.
 - **Forking copies volumes.** The engine creates the PR environment's containers and volumes without
   starting them, stops the baseline's services (not its Tailscale node), copies each volume in
   `DATA_VOLUMES` file by file (`cp -a`), and starts the baseline again whether or not the copy worked. The
@@ -74,7 +82,7 @@ GitHub ──(workflow job, label: preview)──▶ self-hosted runner on the p
   A half-created environment is recreated from scratch on the next deploy: its containers and volumes are
   removed first, except the Tailscale node's state.
 - Every environment runs its own copy of every service, database included. Budget memory accordingly.
-  Limits: at most `MAX_ENVS` PR environments per project (default 8), and no new PR environment when the
+  Limits: at most `MAX_ENVS` PR and branch environments per project (default 8), and no new environment when the
   host has less than `MIN_FREE_MB` of available memory (default 1536). Hitting a limit is not a failure; the
   PR comment says so.
 
@@ -138,7 +146,7 @@ Plain `KEY=value` lines; `#` starts a comment. The file is parsed, not executed.
 | `HEALTH_PATH`   | `/`            | Path requested through `HTTP` until it answers 2xx/3xx; deploys fail if it does not within two minutes                                                                                                |
 | `DATA_VOLUMES`  | `auto`         | Volumes copied from the baseline into new PR environments and backed up nightly: `auto` (every named volume), `none` (every PR starts with empty data and is seeded), or space-separated volume names |
 | `SECRETS`       | empty          | Space-separated variable names; each gets a random value generated once per project, kept on the host and identical in every environment                                                              |
-| `MAX_ENVS`      | `8`            | Maximum number of PR environments                                                                                                                                                                     |
+| `MAX_ENVS`      | `8`            | Maximum number of PR and branch environments                                                                                                                                                          |
 | `MIN_FREE_MB`   | `1536`         | Minimum available host memory to create a PR environment                                                                                                                                              |
 | `KEEP_BACKUPS`  | `7`            | Number of daily baseline backups to keep                                                                                                                                                              |
 
@@ -178,7 +186,11 @@ tailnet-preview destroy ENV [--force]             remove containers, volumes and
 tailnet-preview stop|start ENV                    stop or start, keeping data
 tailnet-preview url ENV | info ENV | list         show URLs; info: url, tag and how it was created (mode)
 tailnet-preview backup                            archive the baseline's DATA_VOLUMES, keep KEEP_BACKUPS
-tailnet-preview prune [OPEN_PR_NUMBERS…]          destroy environments of closed PRs, remove unused images
+tailnet-preview prune [KEEP…]                     destroy PR and branch environments not listed (PR numbers,
+                                                  br-<branch> names), remove unused images
+tailnet-preview branch-env [--match PATTERNS] BRANCH
+                                                  print a branch's environment name; with --match, exit 1
+                                                  unless a pattern matches the branch
 tailnet-preview doctor ENV                        read-only diagnostics
 tailnet-preview validate                          check the configuration without deploying (needs the docker CLI only)
 tailnet-preview init                              write a commented .tailnet-preview/ to start from
@@ -257,15 +269,21 @@ connections and a parallel pull aborts every image when one connection drops.
 
 `uses: riverscn/tailnet-preview@v0.3.0` with `command`:
 
-| `command` | Typical trigger                                                              | Does                                                                                                                          |
-| --------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| `deploy`  | `pull_request` (opened, synchronize, reopened), `push` to the default branch | Builds images, initializes the baseline from the base branch if needed (or deploys fresh), deploys, prints `doctor`, comments |
-| `destroy` | `pull_request` closed                                                        | Destroys `pr-<number>`, updates the PR comment                                                                                |
-| `nightly` | `schedule`                                                                   | Backs up the baseline, prunes environments of closed PRs and unused images                                                    |
-| `run`     | `workflow_dispatch`                                                          | Runs an engine command given in `args`, e.g. `reset main`                                                                     |
+| `command` | Typical trigger                                                          | Does                                                                                                                                 |
+| --------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `deploy`  | `pull_request` (opened, synchronize, reopened, ready_for_review), `push` | Builds images, initializes the baseline from the base branch if needed (or deploys fresh), deploys, prints `doctor`, comments        |
+| `destroy` | `pull_request` closed, `delete` of a branch                              | Destroys `pr-<number>` (and updates the PR comment) or `br-<branch>`                                                                 |
+| `nightly` | `schedule`                                                               | Backs up the baseline, prunes environments of closed PRs, of branches that are gone, have a PR or no longer match, and unused images |
+| `run`     | `workflow_dispatch`                                                      | Runs an engine command given in `args`, e.g. `reset main`                                                                            |
+
+A push to the default branch deploys the baseline. A push to another branch deploys its branch environment
+if `branches` matches it and it has no open PR, and is skipped otherwise; a draft PR is skipped when
+`drafts` is `false` (an environment it already has stays until the PR closes). A skipped deploy succeeds and
+says why in the job summary. Pass the same `branches` to the `nightly` job, which prunes by it.
 
 `run` uses the code of the ref the workflow checked out, normally the default branch, so it refuses
-`deploy pr-<n>` and `reset pr-<n>`: they would put the default branch's code into a PR environment. To
+`deploy` and `reset` of `pr-<n>` and `br-<branch>`: they would put the default branch's code into that
+environment. To
 rebuild a PR environment, run `destroy pr-<n>` and re-run the PR's deploy job.
 
 The diagnostics, the PR comment and the job result run after a failed deploy, but not after a cancelled

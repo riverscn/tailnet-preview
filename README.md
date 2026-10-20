@@ -31,10 +31,11 @@ pull request ──▶ GitHub Actions (self-hosted runner on your machine)
 
 ## How it works
 
-| Environment          | Data                                                                                 | Lifetime            |
-| -------------------- | ------------------------------------------------------------------------------------ | ------------------- |
-| `main`, the baseline | Created once (migrate + seed), then upgraded by every push to the default branch     | Long-lived          |
-| `pr-<number>`        | A copy of the baseline's data volumes (database, uploads…), then the PR's migrations | Until the PR closes |
+| Environment              | Data                                                                                 | Lifetime                                 |
+| ------------------------ | ------------------------------------------------------------------------------------ | ---------------------------------------- |
+| `main`, the baseline     | Created once (migrate + seed), then upgraded by every push to the default branch     | Long-lived                               |
+| `pr-<number>`            | A copy of the baseline's data volumes (database, uploads…), then the PR's migrations | Until the PR closes                      |
+| `br-<branch>` (optional) | The same, for a branch without a PR, when the workflow opts in (`branches`)          | Until the branch is deleted or gets a PR |
 
 Each environment is a Docker Compose project: your services, database included. HTTPS in front of them
 comes from the host's mode, below. To fork, the engine pauses the baseline for a few seconds and copies
