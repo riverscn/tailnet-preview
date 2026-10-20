@@ -1,0 +1,123 @@
+:root {
+  --bg: #ffffff;
+  --bg-soft: #f4f7fd;
+  --fg: #0f172a;
+  --muted: #475569;
+  --border: #dbe3f0;
+  --accent: #2563eb;
+  --accent-strong: #1e3a8a;
+  --accent-soft: #dbeafe;
+  --code-bg: #0f172a;
+  --code-fg: #e2e8f0;
+  --radius: 14px;
+  --max: 1080px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b1120;
+    --bg-soft: #111a2e;
+    --fg: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #1f2c47;
+    --accent: #60a5fa;
+    --accent-strong: #bfdbfe;
+    --accent-soft: #172554;
+    --code-bg: #060b17;
+    color-scheme: dark;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font:
+    16px/1.65 system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    sans-serif;
+}
+
+a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+code,
+pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: 0.9em;
+}
+
+:not(pre) > code {
+  background: var(--bg-soft);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.1em 0.35em;
+}
+
+pre {
+  background: var(--code-bg) !important;
+  color: var(--code-fg);
+  border-radius: var(--radius);
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  line-height: 1.5;
+}
+
+.container {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 16px;
+}
+
+@media (min-width: 720px) {
+  .container {
+    padding: 0 24px;
+  }
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.7em 1.2em;
+  border-radius: 999px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  background: var(--bg);
+}
+
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+@media (prefers-color-scheme: dark) {
+  .button.primary {
+    color: #0b1120;
+  }
+}
+
+.button:hover {
+  filter: brightness(1.08);
+}

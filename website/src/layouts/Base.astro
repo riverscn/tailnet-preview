@@ -1,0 +1,119 @@
+---
+import '../styles/global.css'
+import { DISCORD, REPO, doc, otherLang, ui, url, type Lang } from '../i18n'
+
+interface Props {
+  lang: Lang
+  title?: string
+  description?: string
+}
+
+const { lang, title, description } = Astro.props
+const t = ui[lang]
+const pageTitle = title ? `${title} · tailnet-preview` : `tailnet-preview: ${t.tagline}`
+const other = otherLang(lang, Astro.url.pathname)
+const here = Astro.url.pathname.replace(/\/$/, '')
+const isActive = (href: string) => here === href.replace(/\/$/, '')
+const favicon = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/favicon.svg`
+---
+
+<!doctype html>
+<html lang={t.htmlLang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{pageTitle}</title>
+    <meta name="description" content={description ?? t.tagline} />
+    <link rel="icon" type="image/svg+xml" href={favicon} />
+    <link rel="alternate" hreflang={other.lang === 'en' ? 'en' : 'zh-CN'} href={other.href} />
+    <meta property="og:title" content={pageTitle} />
+    <meta property="og:description" content={description ?? t.tagline} />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container bar">
+        <a class="brand" href={url(lang)}>
+          <img src={favicon} width="28" height="28" alt="" />
+          <span>tailnet-preview</span>
+        </a>
+        <nav>
+          <a href={url(lang, '/getting-started/')} aria-current={isActive(url(lang, '/getting-started/')) ? 'page' : undefined}
+            >{t.nav.start}</a
+          >
+          <a href={doc(lang, 'README', '#documentation')}>{t.nav.docs}</a>
+          <a href={REPO}>{t.nav.github}</a>
+          <a class="lang" href={other.href} hreflang={other.lang === 'en' ? 'en' : 'zh-CN'}>{other.label}</a>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <slot />
+    </main>
+    <footer class="site-footer">
+      <div class="container">
+        <p>
+          <a href={REPO}>GitHub</a> · <a href={DISCORD}>Discord</a> · <a href={`${REPO}/blob/main/CHANGELOG.md`}
+            >Changelog</a
+          >
+        </p>
+        <p class="muted">{t.footer}</p>
+      </div>
+    </footer>
+  </body>
+</html>
+
+<style>
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: color-mix(in srgb, var(--bg) 88%, transparent);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 60px;
+    flex-wrap: wrap;
+  }
+  .brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    color: var(--fg);
+    text-decoration: none;
+  }
+  nav {
+    display: flex;
+    gap: 4px 16px;
+    flex-wrap: wrap;
+    font-size: 0.95rem;
+  }
+  nav a {
+    color: var(--muted);
+    text-decoration: none;
+  }
+  nav a:hover,
+  nav a[aria-current='page'] {
+    color: var(--fg);
+  }
+  nav .lang {
+    color: var(--accent);
+  }
+  .site-footer {
+    margin-top: 80px;
+    padding: 32px 0 48px;
+    border-top: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  .site-footer p {
+    margin: 0.3em 0;
+  }
+  .muted {
+    color: var(--muted);
+  }
+</style>

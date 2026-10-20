@@ -1,0 +1,433 @@
+---
+import { DISCORD, REPO, doc, url, type Lang } from '../i18n'
+
+interface Props {
+  lang: Lang
+}
+const { lang } = Astro.props
+
+const content = {
+  en: {
+    eyebrow: 'Open source · GitHub Actions · Docker Compose · Tailscale',
+    title: 'A private preview of every pull request, on a machine you own',
+    lead: 'Open a pull request and a complete copy of your application starts on your own Linux box, with its own database copied from a long-lived baseline of your default branch. You get a private HTTPS address that only devices in your tailnet can open. Every push updates it, and closing the PR removes it.',
+    ctaStart: 'Get started',
+    ctaGithub: 'View on GitHub',
+    flow: [
+      'pull request ──▶ GitHub Actions on your machine (self-hosted runner)',
+      '                   │  build images · copy the baseline’s data · run the PR’s migrations · start',
+      '                   ▼',
+      '   https://myapp-pr-42.<your tailnet>.ts.net      private to your tailnet',
+    ],
+    featuresTitle: 'Why tailnet-preview',
+    features: [
+      {
+        title: 'Realistic upgrades',
+        body: 'Each PR starts from a copy of real (demo) data and runs its own migrations, the way production will. Bugs that only show up on an existing database appear before you merge.',
+      },
+      {
+        title: 'Private',
+        body: 'No public port, tunnel or login page. Only devices in your Tailscale network can reach the environments.',
+      },
+      {
+        title: 'Cheap',
+        body: 'Any Linux box with Docker, such as a home server or a spare VM. One machine serves many projects.',
+      },
+      {
+        title: 'Any stack',
+        body: 'Bash and Docker Compose. Your database is just a service in your compose file, and your existing compose file stays as it is.',
+      },
+      {
+        title: 'Tells you what went wrong',
+        body: 'A comment on the PR gives the address, or names the cause of a failed deploy and how to fix it.',
+      },
+      {
+        title: 'Works with AI agents',
+        body: 'The docs are step-by-step procedures. Paste one prompt into your coding agent and it does the setup, telling you which steps only you can do.',
+      },
+    ],
+    agentTitle: 'Using an AI coding agent?',
+    agentLead: 'Open it in your project and paste this prompt:',
+    agentPrompt:
+      'Set up tailnet-preview (https://github.com/riverscn/tailnet-preview) for this project, so every pull request gets its own preview environment on my machine. Follow its docs/agent-guide.md. Tell me which steps only I can do, all at once, and never ask me for a secret in the chat.',
+    howTitle: 'How it works',
+    howLead:
+      'Each environment is a Docker Compose project with your services, database included. To copy the baseline, the engine pauses it for a few seconds and copies its data volumes.',
+    howHead: ['Environment', 'Data', 'Lifetime'],
+    how: [
+      [
+        '<code>main</code>, the baseline',
+        'Created once (migrate + seed), then upgraded by every push to the default branch',
+        'Long-lived',
+      ],
+      [
+        '<code>pr-&lt;number&gt;</code>',
+        'A copy of the baseline’s data volumes (database, uploads…), then the PR’s migrations',
+        'Until the PR closes',
+      ],
+      [
+        '<code>br-&lt;branch&gt;</code> (optional)',
+        'The same, for a branch without a PR, when the workflow opts in',
+        'Until the branch is deleted or gets a PR',
+      ],
+    ],
+    modesTitle: 'Two ways to reach environments',
+    modes: [
+      {
+        name: 'sidecar',
+        tag: 'default',
+        addr: 'https://&lt;project&gt;-&lt;env&gt;.&lt;tailnet&gt;.ts.net',
+        body: 'Each environment is its own Tailscale node with its own certificate. Needs nothing beyond Tailscale. A new environment’s certificate is often only issued minutes after the deploy.',
+      },
+      {
+        name: 'shared',
+        tag: 'optional',
+        addr: 'https://&lt;project&gt;-&lt;env&gt;.&lt;your domain&gt;',
+        body: 'One entry point per machine with one wildcard certificate, so previews work right away. Needs a domain whose DNS provider has an API, and a split DNS entry in the tailnet.',
+      },
+    ],
+    dayTitle: 'Day to day',
+    dayLead:
+      'Everything runs from GitHub Actions. On the machine, the same engine helps when something looks wrong.',
+    needTitle: 'What you need',
+    need: [
+      'A Linux machine with Docker that stays on, with a few GB of free memory.',
+      'A Tailscale account. The free plan works.',
+      'A GitHub repository you control, private or with the precautions in the security guide.',
+      'An application that runs in containers and reads its URL and database connection from environment variables.',
+    ],
+    statusTitle: 'Status',
+    status:
+      'Pre-1.0 (0.x), in daily use by the multi-tenant SaaS project it was extracted from. Linux hosts only. Pull requests from forks are never deployed.',
+    community: 'Questions or help with a setup',
+    communityLink: 'Join the Discord server',
+  },
+  'zh-cn': {
+    eyebrow: '开源 · GitHub Actions · Docker Compose · Tailscale',
+    title: '每个 PR 一套私有试用环境，跑在你自己的机器上',
+    lead: '开一个 PR，你自己的 Linux 机器上就会起一套完整的应用，数据库从默认分支的常驻基线复制而来。你会得到一个私有的 HTTPS 地址，只有你 tailnet 里的设备能打开。往 PR 推送会更新它，关闭 PR 它就删除。',
+    ctaStart: '快速开始',
+    ctaGithub: '在 GitHub 上查看',
+    flow: [
+      'pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）',
+      '                   │  构建镜像 · 复制基线数据 · 执行 PR 的迁移 · 启动',
+      '                   ▼',
+      '   https://myapp-pr-42.<你的 tailnet>.ts.net      只在 tailnet 内可访问',
+    ],
+    featuresTitle: '为什么用 tailnet-preview',
+    features: [
+      {
+        title: '贴近真实的升级',
+        body: '每个 PR 都从一份真实（演示）数据的副本开始，再执行它自己的迁移，和上线时一样。只在已有数据上才会出现的问题，合并前就能发现。',
+      },
+      { title: '私有', body: '没有公网端口、隧道或登录页：只有你 Tailscale 网络里的设备能访问这些环境。' },
+      { title: '便宜', body: '任何装了 Docker 的 Linux 机器都行，比如家里的小主机或一台闲置虚拟机。一台机器可以服务多个项目。' },
+      { title: '不挑技术栈', body: '只用 Bash 和 Docker Compose。数据库就是 compose 文件里的一个服务，项目原有的 compose 文件不用改。' },
+      { title: '出错时告诉你原因', body: 'PR 上的评论给出地址；部署失败时，会写明原因和处理办法。' },
+      {
+        title: '适合 AI 编程助手',
+        body: '文档都是一步步的操作手册。把一段提示词粘贴给编程助手，它就能完成接入，并告诉你哪些步骤只能由你亲自完成。',
+      },
+    ],
+    agentTitle: '在用 AI 编程助手？',
+    agentLead: '在你的项目里打开它，粘贴这段提示词：',
+    agentPrompt:
+      '为这个项目接入 tailnet-preview（https://github.com/riverscn/tailnet-preview），让每个 PR 都在我的主机上有自己的试用环境。按它的 docs/agent-guide.zh-CN.md 来做。需要我亲自做的步骤一次性告诉我，永远不要在聊天里向我索要密钥。',
+    howTitle: '原理',
+    howLead: '每个环境是一个 Docker Compose 项目，包含你的所有服务，数据库也在内。复制基线时，引擎让基线暂停几秒，复制它的数据卷。',
+    howHead: ['环境', '数据', '生命周期'],
+    how: [
+      ['<code>main</code>，即基线', '第一次创建时执行迁移并灌演示数据，之后每次推送默认分支时原地升级', '常驻'],
+      ['<code>pr-&lt;编号&gt;</code>', '复制基线的数据卷（数据库、上传文件等），再执行 PR 的迁移', '到 PR 关闭为止'],
+      ['<code>br-&lt;分支&gt;</code>（可选）', '同上，用于没有 PR 的分支，需要在工作流里开启', '到分支删除或开了 PR 为止'],
+    ],
+    modesTitle: '两种访问方式',
+    modes: [
+      {
+        name: 'sidecar',
+        tag: '默认',
+        addr: 'https://&lt;项目&gt;-&lt;环境&gt;.&lt;tailnet&gt;.ts.net',
+        body: '每个环境是一个独立的 Tailscale 节点，有自己的证书。除了 Tailscale 不需要别的。新环境的证书常常要在部署几分钟后才签发。',
+      },
+      {
+        name: 'shared',
+        tag: '可选',
+        addr: 'https://&lt;项目&gt;-&lt;环境&gt;.&lt;你的域名&gt;',
+        body: '每台机器一个入口、一张通配符证书，环境部署完立刻能打开。需要一个 DNS 服务商提供 API 的域名，并在 tailnet 里配置 split DNS。',
+      },
+    ],
+    dayTitle: '日常使用',
+    dayLead: '一切都由 GitHub Actions 驱动。在机器上，同一个引擎可以帮你排查问题。',
+    needTitle: '需要准备什么',
+    need: [
+      '一台装了 Docker、一直开着的 Linux 机器，留出几 GB 空闲内存。',
+      '一个 Tailscale 账号，免费套餐就够用。',
+      '一个你能管理的 GitHub 仓库，最好是私有的；公开仓库要按安全说明采取措施。',
+      '一个能在容器里运行、从环境变量读取自己地址和数据库连接的应用。',
+    ],
+    statusTitle: '状态',
+    status:
+      '1.0 之前（0.x），已在它所源自的多租户 SaaS 项目中日常使用。只支持 Linux 主机。来自 fork 的 PR 永远不会被部署。',
+    community: '有问题或需要帮忙接入',
+    communityLink: '加入 Discord 服务器',
+  },
+}[lang]
+
+const cli = `$ tailnet-preview list
+main       3f6fd43dd417  https://myapp-main.tail1234.ts.net
+pr-42      d69d97d1ab55  https://myapp-pr-42.tail1234.ts.net
+$ tailnet-preview doctor pr-42      # containers, Tailscale, HTTPS, upstreams, logs
+$ tailnet-preview reset pr-42       # copy the baseline again`
+---
+
+<section class="hero">
+  <div class="container hero-inner">
+    <p class="eyebrow">{content.eyebrow}</p>
+    <h1>{content.title}</h1>
+    <p class="lead">{content.lead}</p>
+    <div class="actions">
+      <a class="button primary" href={url(lang, '/getting-started/')}>{content.ctaStart} →</a>
+      <a class="button" href={REPO}>{content.ctaGithub}</a>
+    </div>
+    <pre class="flow" aria-label="pull request → self-hosted runner → private URL">{content.flow.join('\n')}</pre>
+  </div>
+</section>
+
+<section class="container section">
+  <h2>{content.featuresTitle}</h2>
+  <div class="grid">
+    {
+      content.features.map((f) => (
+        <article class="card">
+          <h3>{f.title}</h3>
+          <p>{f.body}</p>
+        </article>
+      ))
+    }
+  </div>
+</section>
+
+<section class="container section">
+  <div class="agent">
+    <h2>{content.agentTitle}</h2>
+    <p>{content.agentLead}</p>
+    <pre class="prompt">{content.agentPrompt}</pre>
+    <p class="small">
+      <a href={doc(lang, 'docs/agent-guide')}>{lang === 'en' ? 'Read the agent guide' : '阅读 AI 助手指南'} →</a>
+    </p>
+  </div>
+</section>
+
+<section class="container section">
+  <h2>{content.howTitle}</h2>
+  <p class="muted">{content.howLead}</p>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>{content.howHead.map((h) => <th>{h}</th>)}</tr>
+      </thead>
+      <tbody>
+        {
+          content.how.map((row) => (
+            <tr>
+              {row.map((cell) => (
+                <td set:html={cell} />
+              ))}
+            </tr>
+          ))
+        }
+      </tbody>
+    </table>
+  </div>
+  <p class="small"><a href={doc(lang, 'docs/design')}>docs/design →</a></p>
+</section>
+
+<section class="container section">
+  <h2>{content.modesTitle}</h2>
+  <div class="grid two">
+    {
+      content.modes.map((m) => (
+        <article class="card">
+          <h3>
+            <code>{m.name}</code> <span class="tag">{m.tag}</span>
+          </h3>
+          <p class="addr" set:html={m.addr} />
+          <p>{m.body}</p>
+        </article>
+      ))
+    }
+  </div>
+</section>
+
+<section class="container section split">
+  <div>
+    <h2>{content.dayTitle}</h2>
+    <p class="muted">{content.dayLead}</p>
+    <pre>{cli}</pre>
+  </div>
+  <div>
+    <h2>{content.needTitle}</h2>
+    <ul class="checks">{content.need.map((n) => <li>{n}</li>)}</ul>
+    <h3>{content.statusTitle}</h3>
+    <p class="muted">{content.status}</p>
+    <p>
+      {content.community}: <a href={DISCORD}>{content.communityLink}</a>
+    </p>
+  </div>
+</section>
+
+<section class="container section">
+  <div class="cta">
+    <h2>{lang === 'en' ? 'Ready to try it?' : '准备好试试了吗？'}</h2>
+    <a class="button primary" href={url(lang, '/getting-started/')}>{content.ctaStart} →</a>
+  </div>
+</section>
+
+<style>
+  .hero {
+    background:
+      radial-gradient(1200px 400px at 50% -100px, var(--accent-soft), transparent 70%),
+      var(--bg);
+    padding: 72px 0 40px;
+    text-align: center;
+  }
+  .hero-inner {
+    max-width: 880px;
+  }
+  .eyebrow {
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.85rem;
+    letter-spacing: 0.02em;
+    margin: 0 0 12px;
+  }
+  h1 {
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    line-height: 1.15;
+    margin: 0 0 20px;
+    letter-spacing: -0.02em;
+  }
+  .lead {
+    font-size: 1.1rem;
+    color: var(--muted);
+    margin: 0 auto 28px;
+    max-width: 720px;
+  }
+  .actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: 40px;
+  }
+  .flow {
+    text-align: left;
+    font-size: 0.82rem;
+  }
+  .section {
+    margin-top: 72px;
+  }
+  h2 {
+    font-size: 1.7rem;
+    margin: 0 0 16px;
+    letter-spacing: -0.01em;
+  }
+  .grid {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+  .grid.two {
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 22px;
+    background: var(--bg-soft);
+  }
+  .card h3 {
+    margin: 0 0 8px;
+    font-size: 1.1rem;
+  }
+  .card p {
+    margin: 0;
+    color: var(--muted);
+  }
+  .card p + p {
+    margin-top: 8px;
+  }
+  .card .addr {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    color: var(--fg);
+    word-break: break-all;
+  }
+  .tag {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--accent);
+    background: var(--accent-soft);
+    padding: 2px 8px;
+    border-radius: 999px;
+    vertical-align: middle;
+  }
+  .agent {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    background: linear-gradient(135deg, var(--accent-soft), var(--bg-soft));
+  }
+  .prompt {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .table-wrap {
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.95rem;
+  }
+  th,
+  td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .split {
+    display: grid;
+    gap: 40px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  @media (min-width: 880px) {
+    .split {
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+    }
+  }
+  .checks {
+    padding-left: 1.2em;
+  }
+  .checks li {
+    margin-bottom: 6px;
+  }
+  .muted {
+    color: var(--muted);
+  }
+  .small {
+    font-size: 0.92rem;
+  }
+  .cta {
+    text-align: center;
+    padding: 40px 16px;
+    border-radius: var(--radius);
+    background: var(--bg-soft);
+    border: 1px solid var(--border);
+  }
+</style>
