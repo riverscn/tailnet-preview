@@ -16,6 +16,8 @@ description: 用 tailnet-preview 四步为每个 PR 搭好试用环境。
 > 有自己的试用环境。按它的 docs/agent-guide.zh-CN.md 来做。需要我亲自做的步骤一次性告诉我，永远不要在聊天里
 > 向我索要密钥。
 > ```
+>
+> 想让助手以后也记得这些（接入下一个项目、排查部署失败），安装 skill：`npx skills add riverscn/tailnet-preview`。
 
 ## 需要准备什么
 

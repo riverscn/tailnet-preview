@@ -17,6 +17,10 @@
 > ```
 >
 > The agent follows [docs/agent-guide.md](docs/agent-guide.md) and tells you which steps only you can do.
+>
+> To keep that know-how in your agent for later (setting up another project, a failed deploy), install the
+> skill with `npx skills add riverscn/tailnet-preview`. Then just ask, for example "why did the preview of
+> PR 42 fail?".
 
 Open a pull request and a complete copy of your application starts on a machine you own, with its own
 database copied from a long-lived **baseline** of your default branch. You get a private HTTPS address that
@@ -140,7 +144,8 @@ In the order you need them:
 5. [Security](docs/security.md): what you trust when you run it, and public repositories
 6. [Design](docs/design.md): how it works, every setting and command, failure codes
 
-With an AI agent: [agent guide](docs/agent-guide.md), which steps it does and which you do.
+With an AI agent: [agent guide](docs/agent-guide.md), which steps it does and which you do. As a skill for
+your agent: `npx skills add riverscn/tailnet-preview`.
 
 Every document has a Simplified Chinese version next to it (`<name>.zh-CN.md`), linked at its top.
 

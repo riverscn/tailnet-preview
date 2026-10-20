@@ -19,6 +19,9 @@ authoritative version.
 > request gets its own preview environment on my machine. Follow its docs/agent-guide.md. Tell me which
 > steps only I can do, all at once, and never ask me for a secret in the chat.
 > ```
+>
+> To keep that know-how in your agent for later (another project, a failed deploy), install the skill:
+> `npx skills add riverscn/tailnet-preview`.
 
 ## What you need
 

@@ -50,6 +50,8 @@ const content = {
     agentLead: 'Open it in your project and paste this prompt:',
     agentPrompt:
       'Set up tailnet-preview (https://github.com/riverscn/tailnet-preview) for this project, so every pull request gets its own preview environment on my machine. Follow its docs/agent-guide.md. Tell me which steps only I can do, all at once, and never ask me for a secret in the chat.',
+    agentSkill:
+      'Or install it as a skill, so your agent can also add the next project or find out why a deploy failed, whenever you ask:',
     howTitle: 'How it works',
     howLead:
       'Each environment is a Docker Compose project with your services, database included. To copy the baseline, the engine pauses it for a few seconds and copies its data volumes.',
@@ -133,6 +135,7 @@ const content = {
     agentLead: '在你的项目里打开它，粘贴这段提示词：',
     agentPrompt:
       '为这个项目接入 tailnet-preview（https://github.com/riverscn/tailnet-preview），让每个 PR 都在我的主机上有自己的试用环境。按它的 docs/agent-guide.zh-CN.md 来做。需要我亲自做的步骤一次性告诉我，永远不要在聊天里向我索要密钥。',
+    agentSkill: '也可以把它装成 skill，以后接入下一个项目、排查部署失败，直接问助手就行：',
     howTitle: '原理',
     howLead: '每个环境是一个 Docker Compose 项目，包含你的所有服务，数据库也在内。复制基线时，引擎让基线暂停几秒，复制它的数据卷。',
     howHead: ['环境', '数据', '生命周期'],
@@ -212,6 +215,8 @@ $ tailnet-preview reset pr-42       # copy the baseline again`
     <h2>{content.agentTitle}</h2>
     <p>{content.agentLead}</p>
     <pre class="prompt">{content.agentPrompt}</pre>
+    <p>{content.agentSkill}</p>
+    <pre>npx skills add riverscn/tailnet-preview</pre>
     <p class="small">
       <a href={doc(lang, 'docs/agent-guide')}>{lang === 'en' ? 'Read the agent guide' : '阅读 AI 助手指南'} →</a>
     </p>
