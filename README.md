@@ -8,8 +8,15 @@
 
 [简体中文](README.zh-CN.md)
 
-> **Using an AI coding agent?** Give it this repository's URL and ask it to set up previews for your
-> project. It follows [docs/agent-guide.md](docs/agent-guide.md) and tells you which steps only you can do.
+> **Using an AI coding agent?** Open it in your project and paste this prompt:
+>
+> ```text
+> Set up tailnet-preview (https://github.com/riverscn/tailnet-preview) for this project, so every pull
+> request gets its own preview environment on my machine. Follow its docs/agent-guide.md. Tell me which
+> steps only I can do, all at once, and never ask me for a secret in the chat.
+> ```
+>
+> The agent follows [docs/agent-guide.md](docs/agent-guide.md) and tells you which steps only you can do.
 
 Open a pull request and a complete copy of your application starts on a machine you own, with its own
 database copied from a long-lived **baseline** of your default branch. You get a private HTTPS address that

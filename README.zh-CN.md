@@ -8,7 +8,15 @@
 
 [English](README.md)
 
-> **在用 AI 编程助手？** 把本仓库的地址交给它，让它为你的项目接入试用环境。它会按 [docs/agent-guide.zh-CN.md](docs/agent-guide.zh-CN.md) 来做，并告诉你哪些步骤只能由你亲自完成。
+> **在用 AI 编程助手？** 在你的项目里打开它，粘贴这段提示词：
+>
+> ```text
+> 为这个项目接入 tailnet-preview（https://github.com/riverscn/tailnet-preview），让每个 PR 都在我的机器上
+> 有自己的试用环境。按它的 docs/agent-guide.zh-CN.md 来做。需要我亲自做的步骤一次性告诉我，永远不要在聊天里
+> 向我索要密钥。
+> ```
+>
+> 它会按 [docs/agent-guide.zh-CN.md](docs/agent-guide.zh-CN.md) 来做，并告诉你哪些步骤只能由你亲自完成。
 
 开一个 PR，你自己的机器上就会起一套完整的应用，数据库从默认分支的常驻**基线**复制而来。你会得到一个私有的 HTTPS 地址，只有你 [Tailscale](https://tailscale.com) 网络里的设备能打开。往 PR 推送会更新它，关闭 PR 它就删除。PR 上的评论会给出地址；部署失败时，会写明原因和处理办法。
 

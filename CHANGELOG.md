@@ -4,6 +4,10 @@ All notable changes are documented here. The project follows [Semantic Versionin
 
 ## Unreleased
 
+### Changed
+
+- The README gives a prompt to paste into an AI coding agent to set up previews.
+
 ## 0.4.0 - 2026-10-20
 
 ### Added
