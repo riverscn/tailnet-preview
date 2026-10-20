@@ -1,5 +1,7 @@
 # Security model
 
+[简体中文](security.zh-CN.md)
+
 tailnet-preview runs code from pull requests on a machine you own. Understand what that means before you
 enable it.
 

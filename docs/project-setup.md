@@ -1,5 +1,7 @@
 # Project setup
 
+[简体中文](project-setup.zh-CN.md)
+
 Adopting tailnet-preview in a repository takes a configuration directory and one workflow. The
 [example](../example/) is a complete minimal project; the reference for every setting is
 [design.md section 5](design.md#5-project-configuration).

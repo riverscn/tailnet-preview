@@ -1,5 +1,7 @@
 # Troubleshooting
 
+[简体中文](troubleshooting.zh-CN.md)
+
 Start with the PR comment (it names the cause when the engine recognizes it) and the **diagnostics** step
 of the workflow run. On the host, `tailnet-preview doctor <env>` prints the same: containers, the Tailscale
 node, whether HTTPS certificates are available, the serve configuration, whether each upstream answers

@@ -29,7 +29,7 @@ pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）
 | `main`，即基线 | 第一次创建时执行迁移并灌演示数据，之后每次推送默认分支时原地升级 | 常驻           |
 | `pr-<编号>`    | 复制基线的数据卷（数据库、上传文件等），再执行 PR 的迁移         | 到 PR 关闭为止 |
 
-每个环境是一个 Docker Compose 项目，由你的服务（包括数据库）组成；前面的 HTTPS 由主机的模式决定，见下文。fork 时，引擎让基线暂停几秒，复制你在 `DATA_VOLUMES` 里列出的数据卷。详见 [docs/design.md](docs/design.md)（英文）。
+每个环境是一个 Docker Compose 项目，由你的服务（包括数据库）组成；前面的 HTTPS 由主机的模式决定，见下文。fork 时，引擎让基线暂停几秒，复制你在 `DATA_VOLUMES` 里列出的数据卷。详见 [docs/design.md](docs/design.zh-CN.md)。
 
 ## 两种模式
 
@@ -43,13 +43,13 @@ pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）
 | 需要       | 只要 Tailscale                                                                      | 另需一个 DNS 服务商有 API 的域名、tailnet 里一条 split DNS、访问策略开放 53 端口 |
 | 弱点       | 单节点证书经常第一次签不下来（Tailscale 的 DNS 验证有时序问题），sidecar 会重试一天 | 主机级组件：入口停了，所有环境都访问不到                                         |
 
-想不准备域名先试用，选 `sidecar`；要试用环境稳定可靠，选 `shared`。切换只需改主机设置，再重新部署各个环境；地址会变，数据不变（[host-setup.md 第 4 节](docs/host-setup.md#4-shared-ingress-optional-once-per-host)，英文）。等 Tailscale 开放节点子域名的通配符证书后，`shared` 可以直接用 `*.<入口>.<tailnet>.ts.net`，不再需要自己的域名（[design.md 第 10 节](docs/design.md#10-shared-ingress-one-per-host-one-wildcard-certificate)，英文）。
+想不准备域名先试用，选 `sidecar`；要试用环境稳定可靠，选 `shared`。切换只需改主机设置，再重新部署各个环境；地址会变，数据不变（[host-setup.md 第 4 节](docs/host-setup.zh-CN.md#4-共享入口可选每台主机一次)）。等 Tailscale 开放节点子域名的通配符证书后，`shared` 可以直接用 `*.<入口>.<tailnet>.ts.net`，不再需要自己的域名（[design.md 第 10 节](docs/design.zh-CN.md#10-共享入口每台主机一个一张通配符证书)）。
 
 ## 快速开始
 
 1. **一次性准备 tailnet 和主机：** 开启 HTTPS 证书，在访问策略里加上 `tag:preview`，创建 OAuth 客户端，装好 Docker 和标签为 `preview` 的 self-hosted runner；用共享入口时，还要一个域名的 DNS token 和一条 split DNS。
-   → [docs/host-setup.md](docs/host-setup.md)
-2. **在项目里加上 `.tailnet-preview/`：** 项目原有的 compose 文件原样复用，只需补充：要构建的镜像、网站入口、应用自己的地址、模拟服务，以及迁移和演示数据任务。`tailnet-preview init` 生成初稿，`tailnet-preview validate` 检查配置。分步骤的配置指南（英文）按人和 AI agent 都能照做的方式写成：→ [docs/configuring.md](docs/configuring.md)
+   → [docs/host-setup.md](docs/host-setup.zh-CN.md)
+2. **在项目里加上 `.tailnet-preview/`：** 项目原有的 compose 文件原样复用，只需补充：要构建的镜像、网站入口、应用自己的地址、模拟服务，以及迁移和演示数据任务。`tailnet-preview init` 生成初稿，`tailnet-preview validate` 检查配置。分步骤的配置指南按人和 AI agent 都能照做的方式写成：→ [docs/configuring.md](docs/configuring.zh-CN.md)
 3. **加一个工作流** 调用这个 action：
 
    ```yaml
@@ -60,13 +60,13 @@ pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）
        language: zh-CN # PR 评论用中文
    ```
 
-   完整的工作流（部署、关闭时删除、每晚备份和清理、手动命令）见 [docs/project-setup.md](docs/project-setup.md#4-add-the-workflow)。
+   完整的工作流（部署、关闭时删除、每晚备份和清理、手动命令）见 [docs/project-setup.md](docs/project-setup.zh-CN.md#4-添加工作流)。
 
 [example](example/) 是一个完整的最小项目：本仓库在每个 PR 上都部署它，作为端到端测试。
 
 ## 国内网络
 
-主机需要能稳定访问 Docker Hub：基础镜像，以及 postgres、tailscale 等镜像都从那里拉取。国内到 Docker Hub 的连接经常被重置，引擎虽然会逐个拉取并重试，但链路本身不通时重试也没用。请给 Docker 守护进程配置代理（`systemctl edit docker` 加上 `HTTPS_PROXY`）或你信任的镜像加速（`/etc/docker/daemon.json` 的 `registry-mirrors`），然后用 `docker pull postgres:17-alpine` 验证，见 [docs/host-setup.md](docs/host-setup.md#2-the-machine-once)。拉下来的镜像会留在主机上。
+主机需要能稳定访问 Docker Hub：基础镜像，以及 postgres、tailscale 等镜像都从那里拉取。国内到 Docker Hub 的连接经常被重置，引擎虽然会逐个拉取并重试，但链路本身不通时重试也没用。请给 Docker 守护进程配置代理（`systemctl edit docker` 加上 `HTTPS_PROXY`）或你信任的镜像加速（`/etc/docker/daemon.json` 的 `registry-mirrors`），然后用 `docker pull postgres:17-alpine` 验证，见 [docs/host-setup.md](docs/host-setup.zh-CN.md#2-主机一次)。拉下来的镜像会留在主机上。
 
 ## 常见问题
 
@@ -77,7 +77,7 @@ pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）
 | 拉镜像时 `connection reset by peer`                          | 见上面"国内网络"                                                                                              |
 | 第一个 PR 没有从基线复制                                     | 正常：默认分支还没接入。合并后，之后的 PR 都会复制基线                                                        |
 
-完整的故障排查表见 [docs/troubleshooting.md](docs/troubleshooting.md)。
+完整的故障排查表见 [docs/troubleshooting.md](docs/troubleshooting.zh-CN.md)。
 
 ## 状态
 
@@ -85,7 +85,7 @@ pull request ──▶ GitHub Actions（你机器上的 self-hosted runner）
 
 ## 安全
 
-部署 PR 等于在主机上运行 PR 的代码，而 runner 用户在 `docker` 组里，相当于主机的 root。所以只适合私有仓库、推送权限受控的情况。来自 fork 仓库的 PR 一律不部署（action 自己也会拒绝）。公开仓库还需要单独设置 self-hosted runner，否则 fork 的 PR 可以改掉工作流里的条件，在主机上运行代码。建议用一台专用虚拟机做试用主机，也不要把真实的生产数据放进试用环境。详见 [docs/security.md](docs/security.md)。
+部署 PR 等于在主机上运行 PR 的代码，而 runner 用户在 `docker` 组里，相当于主机的 root。所以只适合私有仓库、推送权限受控的情况。来自 fork 仓库的 PR 一律不部署（action 自己也会拒绝）。公开仓库还需要单独设置 self-hosted runner，否则 fork 的 PR 可以改掉工作流里的条件，在主机上运行代码。建议用一台专用虚拟机做试用主机，也不要把真实的生产数据放进试用环境。详见 [docs/security.md](docs/security.zh-CN.md)。
 
 ## 许可证
 
