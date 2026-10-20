@@ -1,0 +1,62 @@
+[
+  {
+    "id": "intro",
+    "minFrames": 120,
+    "zh": "tailnet-preview：每个 PR，一套属于自己的试用环境。",
+    "en": "tailnet-preview. A private preview environment for every pull request."
+  },
+  {
+    "id": "problem",
+    "minFrames": 150,
+    "zh": "评审代码时，只看 diff 是不够的。你想看到它真正跑起来，带着真实的数据。",
+    "en": "Reviewing code? The diff isn't enough. You want to see it running, with real data."
+  },
+  {
+    "id": "open",
+    "minFrames": 270,
+    "zh": "开一个 PR，你自己机器上的 GitHub Actions 就开始工作：构建镜像，复制基线数据，执行这个 PR 的迁移，然后启动。",
+    "en": "Open a pull request, and GitHub Actions on your own machine gets to work: build the images, copy the baseline's data, run the PR's migrations, and start."
+  },
+  {
+    "id": "comment",
+    "minFrames": 240,
+    "zh": "PR 上会出现一条评论，给出一个私有的 HTTPS 地址。点开，就是这个 PR 的完整应用。",
+    "en": "A comment on the PR gives you a private HTTPS address. Open it, and there's the whole app, for this PR."
+  },
+  {
+    "id": "push",
+    "minFrames": 150,
+    "zh": "每推送一次，环境就跟着更新。",
+    "en": "Every push updates it."
+  },
+  {
+    "id": "merge",
+    "minFrames": 240,
+    "zh": "合并之后，主线的基线环境随之升级，PR 的环境自动删除。",
+    "en": "Merge, and the baseline on your default branch upgrades. The PR's environment is removed."
+  },
+  {
+    "id": "data",
+    "minFrames": 210,
+    "zh": "每个 PR 都从基线复制数据，再执行自己的迁移，和真实上线一模一样。",
+    "en": "Every PR starts from a copy of the baseline's data and runs its own migrations, just like production will."
+  },
+  {
+    "id": "private",
+    "minFrames": 210,
+    "zh": "只有你 tailnet 里的设备能访问，公网上什么都没有。一台装了 Docker 的 Linux 机器就够了。",
+    "en": "Only devices in your tailnet can reach it. Nothing on the internet. One Linux box with Docker is all it takes."
+  },
+  {
+    "id": "agent",
+    "minFrames": 210,
+    "zh": "在用 AI 编程助手？贴一段提示词，它就帮你完成接入。",
+    "en": "Using an AI coding agent? Paste one prompt, and it does the setup."
+  },
+  {
+    "id": "outro",
+    "minFrames": 150,
+    "zh": "tailnet-preview。开源，MIT 协议。",
+    "en": "tailnet-preview. Open source, MIT licensed."
+  }
+]

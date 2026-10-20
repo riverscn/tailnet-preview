@@ -1,0 +1,26 @@
+{
+  "zh": {
+    "intro": 5.33,
+    "problem": 7.78,
+    "open": 11.3,
+    "comment": 8.97,
+    "push": 4.17,
+    "merge": 6.53,
+    "data": 7.65,
+    "private": 8.18,
+    "agent": 6.08,
+    "outro": 3.8
+  },
+  "en": {
+    "intro": 5.33,
+    "problem": 5.9,
+    "open": 11.55,
+    "comment": 8.25,
+    "push": 2.27,
+    "merge": 6.8,
+    "data": 8.35,
+    "private": 7.97,
+    "agent": 5.33,
+    "outro": 4.05
+  }
+}

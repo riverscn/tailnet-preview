@@ -1,13 +1,25 @@
-import type { CSSProperties, ReactNode } from 'react'
-import { AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig } from 'remotion'
+import { createContext, useContext, type CSSProperties, type ReactNode } from 'react'
+import {
+  AbsoluteFill,
+  Html5Audio,
+  interpolate,
+  Sequence,
+  spring,
+  staticFile,
+  useCurrentFrame,
+  useVideoConfig,
+} from 'remotion'
 import { color, font } from './theme'
 
 const clamp = { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' } as const
 
+// The length of the shot being drawn, in frames.
+export const ShotLength = createContext(0)
+
 // Fades a whole scene in at its start and out at its end.
 export const Scene = ({ children }: { children: ReactNode }) => {
   const frame = useCurrentFrame()
-  const { durationInFrames } = useVideoConfig()
+  const durationInFrames = useContext(ShotLength)
   const opacity = interpolate(frame, [0, 12, durationInFrames - 12, durationInFrames], [0, 1, 1, 0], clamp)
   return (
     <AbsoluteFill
@@ -58,10 +70,17 @@ export const Typed = ({ text, delay = 0, speed = 1.2 }: { text: string; delay?: 
   )
 }
 
+// A sound effect from public/audio/, played `at` frames into the scene.
+export const Sfx = ({ at, name, volume = 0.6 }: { at: number; name: string; volume?: number }) => (
+  <Sequence from={at} layout="none">
+    <Html5Audio src={staticFile(`audio/${name}.mp3`)} volume={volume} />
+  </Sequence>
+)
+
 // English and Chinese subtitles at the bottom of a scene.
 export const Subtitle = ({ en, zh }: { en: string; zh: string }) => {
   const frame = useCurrentFrame()
-  const { durationInFrames } = useVideoConfig()
+  const durationInFrames = useContext(ShotLength)
   const opacity = interpolate(frame, [8, 20, durationInFrames - 12, durationInFrames], [0, 1, 1, 0], clamp)
   return (
     <AbsoluteFill style={{ justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 56, opacity }}>
@@ -76,8 +95,8 @@ export const Subtitle = ({ en, zh }: { en: string; zh: string }) => {
           fontFamily: font.sans,
         }}
       >
-        <div style={{ fontSize: 38, fontWeight: 600, color: color.fg }}>{en}</div>
-        <div style={{ fontSize: 32, color: color.accentStrong, marginTop: 6 }}>{zh}</div>
+        <div style={{ fontSize: 34, fontWeight: 600, color: color.fg }}>{en}</div>
+        <div style={{ fontSize: 30, color: color.accentStrong, marginTop: 6 }}>{zh}</div>
       </div>
     </AbsoluteFill>
   )

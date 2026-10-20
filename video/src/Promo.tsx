@@ -1,57 +1,38 @@
 import type { FC } from 'react'
-import { AbsoluteFill, Sequence, useCurrentFrame } from 'remotion'
-import { Agent, Comment, Features, Flow, Intro, Outro, Problem } from './scenes'
+import { AbsoluteFill, Html5Audio, interpolate, Sequence, staticFile, useCurrentFrame } from 'remotion'
+import { Agent, Comment, Data, Intro, Merge, OpenPR, Outro, Private, Problem, Push } from './scenes'
+import { lines, type Lang } from './script'
 import { color, FPS } from './theme'
-import { Subtitle } from './ui'
+import { ShotLength, Subtitle } from './ui'
+import voiceover from './voiceover.json'
 
-type Shot = { scene: FC; seconds: number; en: string; zh: string }
+const scenes: Record<string, FC> = {
+  intro: Intro,
+  problem: Problem,
+  open: OpenPR,
+  comment: Comment,
+  push: Push,
+  merge: Merge,
+  data: Data,
+  private: Private,
+  agent: Agent,
+  outro: Outro,
+}
 
-const shots: Shot[] = [
-  {
-    scene: Intro,
-    seconds: 4,
-    en: 'Per-PR preview environments, on your own host.',
-    zh: '在你自己的主机上，为每个 PR 起一套试用环境。',
-  },
-  {
-    scene: Problem,
-    seconds: 5,
-    en: 'Reviewing a pull request? You want to see it running, with real data.',
-    zh: '评审 PR 时，你想看到它真正跑起来，而且带着真实数据。',
-  },
-  {
-    scene: Flow,
-    seconds: 10,
-    en: 'Open a pull request and a complete copy of your app starts on your machine.',
-    zh: '开一个 PR，你自己的机器上就会起一套完整的应用，数据库从基线复制而来。',
-  },
-  {
-    scene: Comment,
-    seconds: 6,
-    en: 'A comment on the PR says where it is, or what went wrong and how to fix it.',
-    zh: 'PR 上的评论会给出地址；部署失败时，会写明原因和处理办法。',
-  },
-  {
-    scene: Features,
-    seconds: 8,
-    en: 'Realistic upgrades, private, cheap, and any stack.',
-    zh: '贴近真实的升级、私有、便宜、不挑技术栈。',
-  },
-  {
-    scene: Agent,
-    seconds: 6,
-    en: 'Paste one prompt into your coding agent and it does the setup.',
-    zh: '把一段提示词贴给 AI 编程助手，它就帮你接入。',
-  },
-  {
-    scene: Outro,
-    seconds: 5,
-    en: 'Open source, MIT licensed.',
-    zh: '开源，MIT 协议。',
-  },
-]
+// The voice-over starts this many frames into its shot, and the shot holds this long after it ends.
+const LEAD = 12
+const TAIL = 18
 
-export const DURATION = shots.reduce((sum, s) => sum + s.seconds * FPS, 0)
+const seconds = voiceover as Record<Lang, Record<string, number>>
+
+export const shotsFor = (lang: Lang) =>
+  lines.map((line) => {
+    const spoken = seconds[lang]?.[line.id]
+    const frames = spoken ? LEAD + Math.ceil(spoken * FPS) + TAIL : 0
+    return { ...line, frames: Math.max(line.minFrames, frames), spoken: Boolean(spoken) }
+  })
+
+export const durationFor = (lang: Lang) => shotsFor(lang).reduce((sum, s) => sum + s.frames, 0)
 
 const Background = () => {
   const frame = useCurrentFrame()
@@ -74,18 +55,32 @@ const Background = () => {
   )
 }
 
-export const Promo = () => {
+export const Promo = ({ lang }: { lang: Lang }) => {
+  const shots = shotsFor(lang)
+  const total = durationFor(lang)
   let from = 0
   return (
     <AbsoluteFill style={{ background: color.bg }}>
       <Background />
-      {shots.map(({ scene: S, seconds, en, zh }) => {
+      <Html5Audio
+        src={staticFile('audio/music.mp3')}
+        volume={(f) => interpolate(f, [0, 30, total - 60, total], [0, 0.22, 0.22, 0], { extrapolateRight: 'clamp' })}
+      />
+      {shots.map((shot) => {
+        const S = scenes[shot.id]
         const start = from
-        from += seconds * FPS
+        from += shot.frames
         return (
-          <Sequence key={en} from={start} durationInFrames={seconds * FPS}>
-            <S />
-            <Subtitle en={en} zh={zh} />
+          <Sequence key={shot.id} from={start} durationInFrames={shot.frames}>
+            <ShotLength.Provider value={shot.frames}>
+              <S />
+              <Subtitle en={shot.en} zh={shot.zh} />
+              {shot.spoken && (
+                <Sequence from={LEAD} layout="none">
+                  <Html5Audio src={staticFile(`voiceover/${lang}/${shot.id}.mp3`)} />
+                </Sequence>
+              )}
+            </ShotLength.Provider>
           </Sequence>
         )
       })}
