@@ -8,7 +8,9 @@
 
 [简体中文](README.zh-CN.md)
 
-<p align="center"><a href="website/public/video/tailnet-preview-en.mp4"><img src="assets/video-poster.jpg" width="720" alt="tailnet-preview video"></a><br><sub>Watch the 75-second introduction (<a href="website/public/video/tailnet-preview-zh.mp4">Chinese voice-over</a>)</sub></p>
+https://github.com/user-attachments/assets/88634a7c-9dcd-4f5d-873d-30e7c57d16a4
+
+<p align="center"><sub>Also as files: <a href="website/public/video/tailnet-preview-en.mp4">English voice-over</a> · <a href="website/public/video/tailnet-preview-zh.mp4">Chinese voice-over</a></sub></p>
 
 > **Using an AI coding agent?** Open it in your project and paste this prompt:
 >

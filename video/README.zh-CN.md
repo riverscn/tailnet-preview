@@ -20,7 +20,7 @@ npm run render      # 生成 out/tailnet-preview-zh.mp4 和 out/tailnet-preview-
 ## 官网上的视频
 
 官网首页播放的是两个版本的压缩版，放在 `website/public/video/`。渲染之后用 `npm run publish`（需要 ffmpeg）
-更新它们，再提交那里生成的文件。仓库的 README 也通过封面图 `assets/video-poster.jpg`（加了播放按钮的封面）链接到这些文件。
+更新它们，再提交那里生成的文件。仓库的 README 播放的是上传到 GitHub 的一份副本（把 mp4 拖进 GitHub 评论框得到的 `user-attachments` 链接），视频更新后要替换这个链接。
 
 ## 文件在哪
 
