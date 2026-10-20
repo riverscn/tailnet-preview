@@ -30,14 +30,27 @@ Rendering downloads a headless Chrome the first time. To use one already install
 
 ## Changing the voice-over
 
-After changing `src/script.json`, speak it again. The voices are [Kokoro](https://github.com/hexgrad/kokoro)
-(Apache-2.0), which runs on the CPU; it needs Python 3.10 to 3.12:
+After changing `src/script.json`, speak it again.
+
+The English lines are spoken by [Kokoro](https://github.com/hexgrad/kokoro) (Apache-2.0), which runs on the
+CPU; it needs Python 3.10 to 3.12:
 
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install "kokoro>=0.9.4" "misaki[zh,en]" soundfile
-.venv/bin/python scripts/voiceover.py
+.venv/bin/python scripts/voiceover.py en
 ```
+
+The Chinese lines are spoken by [ElevenLabs](https://elevenlabs.io) (voice "Yichen Wang", model
+`eleven_v4`), which sounds more natural in Chinese than Kokoro. Save one mp3 per line, named by its `id` in
+`src/script.json` (such as `intro.mp3`), into a folder, then import them. This evens out their loudness and
+records their lengths:
+
+```bash
+scripts/import-voiceover.sh zh path/to/folder
+```
+
+`scripts/voiceover.py zh` still makes a Kokoro Chinese voice-over if you have no ElevenLabs account.
 
 ## Music and sound effects
 

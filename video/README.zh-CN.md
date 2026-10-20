@@ -27,14 +27,25 @@ npm run render      # 生成 out/tailnet-preview-zh.mp4 和 out/tailnet-preview-
 
 ## 修改旁白
 
-改完 `src/script.json` 后要重新生成语音。语音用 [Kokoro](https://github.com/hexgrad/kokoro)（Apache-2.0）
-在 CPU 上生成，需要 Python 3.10 到 3.12：
+改完 `src/script.json` 后要重新生成语音。
+
+英文旁白用 [Kokoro](https://github.com/hexgrad/kokoro)（Apache-2.0）在 CPU 上生成，需要 Python 3.10 到 3.12：
 
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install "kokoro>=0.9.4" "misaki[zh,en]" soundfile
-.venv/bin/python scripts/voiceover.py
+.venv/bin/python scripts/voiceover.py en
 ```
+
+中文旁白用 [ElevenLabs](https://elevenlabs.io) 生成（音色 “Yichen Wang”，模型 `eleven_v4`），中文听起来比
+Kokoro 自然。每句存成一个 mp3，以它在 `src/script.json` 里的 `id` 命名（例如 `intro.mp3`），放进一个文件夹，
+再导入。导入时会统一响度并记录每句的长度：
+
+```bash
+scripts/import-voiceover.sh zh path/to/folder
+```
+
+没有 ElevenLabs 账号的话，`scripts/voiceover.py zh` 仍然可以用 Kokoro 生成中文旁白。
 
 ## 配乐和音效
 

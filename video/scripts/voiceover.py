@@ -3,12 +3,13 @@
 
 Writes public/voiceover/<lang>/<id>.mp3 and the length of each line to src/voiceover.json.
 Needs Python 3.10 to 3.12 with `pip install "kokoro>=0.9.4" "misaki[zh,en]" soundfile`, and ffmpeg.
-Run it from video/: python scripts/voiceover.py
+Run it from video/: python scripts/voiceover.py en (or zh, or both)
 """
 
 import json
 import pathlib
 import subprocess
+import sys
 
 import numpy as np
 import soundfile as sf
@@ -28,8 +29,9 @@ chinese = KPipeline(
 )
 pipelines = {'zh': chinese, 'en': english}
 
-lengths = {}
-for lang, pipeline in pipelines.items():
+lengths = json.loads((ROOT / 'src' / 'voiceover.json').read_text())
+for lang in sys.argv[1:] or ['en']:
+    pipeline = pipelines[lang]
     out = ROOT / 'public' / 'voiceover' / lang
     out.mkdir(parents=True, exist_ok=True)
     lengths[lang] = {}
