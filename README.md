@@ -39,7 +39,8 @@ pull request ──▶ GitHub Actions on your machine (self-hosted runner)
 ## What you need
 
 - A **Linux machine with Docker** that stays on, with a few GB of free memory (each environment runs its
-  own copy of every service).
+  own copy of every service). Any always-on device works: a computer at home that you leave running, a
+  mini PC, a NAS that runs Docker, or an idle VPS in the cloud.
 - A **Tailscale account**. The free plan works.
 - A **GitHub repository** you control, private or with the precautions in [security](docs/security.md).
   Anyone who can push to it can run code on the machine.
